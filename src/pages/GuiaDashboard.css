@@ -1,0 +1,481 @@
+/* ===== LAYOUT ===== */
+.layout-container {
+  display: flex;
+  min-height: 100vh;
+  background: #f5f7fb;
+}
+/* ===== SIDEBAR ===== */
+.sidebar-nav {
+  width: 260px;
+  background: #111827;
+  color: white;
+  padding: 30px 20px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+.sidebar-brand {
+  font-size: 24px;
+  font-weight: bold;
+  margin-bottom: 40px;
+  color: white;
+}
+
+.nav-menu {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.nav-item {
+  background: transparent;
+  border: none;
+  color: white;
+  padding: 14px 16px;
+  border-radius: 12px;
+  text-align: left;
+  cursor: pointer;
+  transition: 0.3s;
+  font-size: 15px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.nav-item:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.nav-item.active {
+  background: #6c63ff;
+}
+
+.nav-icon {
+  font-size: 18px;
+}
+
+.sidebar-footer {
+  margin-top: 30px;
+}
+
+.btn-logout {
+  width: 100%;
+  background: rgba(255, 255, 255, 0.08);
+  border: none;
+  color: white;
+  padding: 12px;
+  border-radius: 12px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: 0.3s;
+}
+
+.btn-logout:hover {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+/* ===== MAIN ===== */
+
+.main-viewport {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* ===== HEADER ===== */
+
+.glass-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 24px 32px;
+  background: white;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.glass-header h1 {
+  font-size: 26px;
+  font-weight: 700;
+  color: #111827;
+  margin: 0 0 8px 0;
+}
+
+.experience-widget {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.level-box {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.level-txt {
+  font-size: 11px;
+  font-weight: 700;
+  color: #6c63ff;
+  letter-spacing: 1px;
+}
+
+.xp-bar-container {
+  width: 160px;
+  height: 6px;
+  background: #e5e7eb;
+  border-radius: 99px;
+  overflow: hidden;
+}
+
+.xp-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #6c63ff, #a78bfa);
+  border-radius: 99px;
+}
+
+.xp-label {
+  font-size: 12px;
+  color: #9ca3af;
+}
+
+.header-profile {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.profile-meta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+}
+
+.profile-email {
+  font-weight: 600;
+  font-size: 14px;
+  color: #111827;
+}
+
+.profile-status {
+  font-size: 12px;
+  color: #16a34a;
+}
+
+.profile-avatar-circle {
+  width: 44px;
+  height: 44px;
+  background: #6c63ff;
+  color: white;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: bold;
+  font-size: 18px;
+}
+
+/* ===== CONTENT ===== */
+
+.content-render {
+  flex: 1;
+  padding: 32px;
+  overflow-y: auto;
+}
+
+.view-animate {
+  animation: fadeIn 0.3s ease;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ===== HERO BANNER ===== */
+
+.hero-banner {
+  background: linear-gradient(135deg, #6c63ff, #a78bfa);
+  border-radius: 20px;
+  padding: 36px 40px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  color: white;
+  margin-bottom: 28px;
+}
+
+.hero-txt h2 {
+  font-size: 26px;
+  font-weight: 700;
+  margin: 0 0 10px 0;
+}
+
+.hero-txt p {
+  font-size: 15px;
+  opacity: 0.85;
+  margin: 0 0 20px 0;
+}
+
+.btn-hero-action {
+  background: white;
+  color: #6c63ff;
+  border: none;
+  padding: 12px 22px;
+  border-radius: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  font-size: 14px;
+  transition: 0.2s;
+}
+
+.btn-hero-action:hover {
+  background: #f3f0ff;
+}
+
+.hero-img {
+  font-size: 72px;
+}
+
+/* ===== STATS ===== */
+
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 20px;
+}
+
+.card-stat {
+  background: white;
+  padding: 24px;
+  border-radius: 20px;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+}
+
+.card-stat.highlight {
+  background: #6c63ff;
+  color: white;
+}
+
+.icon-wrap {
+  font-size: 32px;
+}
+
+.data-num {
+  display: block;
+  font-size: 28px;
+  font-weight: 700;
+  color: #111827;
+}
+
+.card-stat.highlight .data-num {
+  color: white;
+}
+
+.data-lab {
+  display: block;
+  font-size: 13px;
+  color: #9ca3af;
+  margin-top: 2px;
+}
+
+.card-stat.highlight .data-lab {
+  color: rgba(255, 255, 255, 0.75);
+}
+
+/* ===== TOURS ===== */
+
+.guide-create-tour-card {
+  background: white;
+  border-radius: 20px;
+  padding: 28px;
+  margin-bottom: 28px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+}
+
+.guide-create-tour-card h2 {
+  margin: 0 0 20px 0;
+  font-size: 20px;
+  color: #111827;
+}
+
+.guide-tour-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.guide-tour-form input,
+.guide-tour-form textarea {
+  border: 1.5px solid #e5e7eb;
+  border-radius: 12px;
+  padding: 14px 16px;
+  font-size: 14px;
+  background: #f9fafb;
+  outline: none;
+  transition: 0.2s;
+  font-family: inherit;
+  color: #111827;
+}
+
+.guide-tour-form input:focus,
+.guide-tour-form textarea:focus {
+  border-color: #6c63ff;
+  background: white;
+}
+
+.guide-tour-form textarea {
+  resize: vertical;
+  min-height: 90px;
+}
+
+.guide-form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+
+.guide-tour-form button[type="submit"] {
+  background: #6c63ff;
+  color: white;
+  border: none;
+  padding: 14px;
+  border-radius: 12px;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: 0.2s;
+}
+
+.guide-tour-form button[type="submit"]:hover {
+  background: #5a52e0;
+}
+
+/* ===== MIS TOURS ===== */
+
+.guide-my-tours {
+  background: white;
+  border-radius: 20px;
+  padding: 28px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+}
+
+.guide-my-tours h2 {
+  margin: 0 0 20px 0;
+  font-size: 20px;
+  color: #111827;
+}
+
+.guide-my-tours > p {
+  color: #9ca3af;
+}
+
+.tour-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.tour-card {
+  background: #f9fafb;
+  border-radius: 16px;
+  padding: 18px 20px;
+  border: 1.5px solid #e5e7eb;
+  transition: 0.2s;
+}
+
+.tour-card:hover {
+  border-color: #6c63ff;
+  box-shadow: 0 4px 12px rgba(108, 99, 255, 0.1);
+}
+
+.tour-card-top {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+  margin-bottom: 14px;
+}
+
+.tour-image {
+  font-size: 32px;
+}
+
+.tour-card-top h3 {
+  margin: 0 0 4px 0;
+  font-size: 16px;
+  color: #111827;
+}
+
+.tour-card-top p {
+  margin: 0;
+  color: #6b7280;
+  font-size: 14px;
+}
+
+.tour-card-bottom {
+  display: flex;
+  gap: 20px;
+  font-size: 14px;
+  color: #6b7280;
+  border-top: 1px solid #e5e7eb;
+  padding-top: 12px;
+}
+
+/* ===== RESERVAS ===== */
+
+.reservation-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.reservation-card {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: #f9fafb;
+  padding: 20px 24px;
+  border-radius: 16px;
+  border: 1.5px solid #e5e7eb;
+}
+
+.reservation-tour h3 {
+  margin: 0 0 4px 0;
+  font-size: 16px;
+  color: #111827;
+}
+
+.reservation-tour p {
+  margin: 0;
+  color: #6b7280;
+  font-size: 14px;
+}
+
+.reservation-info {
+  display: flex;
+  gap: 20px;
+  font-size: 14px;
+  color: #6b7280;
+}
+
+.reservation-status {
+  padding: 8px 16px;
+  border-radius: 10px;
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.reservation-status.Confirmada {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.reservation-status.Pendiente {
+  background: #fef3c7;
+  color: #b45309;
+}
