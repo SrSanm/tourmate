@@ -1,63 +1,68 @@
 import React from "react";
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate, Outlet } from "react-router-dom";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 
-// Layout y Componentes Globales
+// --- LAYOUTS Y COMPONENTES ---
 import MainLayout from "./components/MainLayout";
+import ModalNotificacion from "./components/ModalNotificacion";
 
-// Páginas Públicas (Carpeta /pages)
+// --- PÁGINAS PÚBLICAS ---
 import HomePage from "./pages/HomePage";
 import LoginPage from "./pages/LoginPage";
 import RegisterPage from "./pages/RegisterPage";
 import ContactPage from "./pages/ContactPage";
 import PackagesPage from "./pages/PackagesPage";
 import TourDetailPage from "./pages/TourDetailPage"; 
+import WaitingApproval from "./pages/WaitingApproval"; // Nueva: Para guías pendientes
 
-// --- DASHBOARDS Y COMPONENTES INTERNOS ---
-// Admin
+// --- DASHBOARDS ---
 import AdminDashboard from "./components/AdminDashboard/AdminDashboard";
 import ApproveGuides from "./components/AdminDashboard/ApproveGuides";
 import ApproveTours from "./components/AdminDashboard/ApproveTours";
 import SiteAnalytics from "./components/AdminDashboard/SiteAnalytics";
 
-// Guía
 import GuideDashboard from "./components/GuideDashboard/GuideDashboard";
 import MyTours from "./components/GuideDashboard/MyTours";
 import CreateTour from "./components/GuideDashboard/CreateTour";
 import Bookings from "./components/GuideDashboard/Bookings";
 import GuideProfile from "./components/GuideDashboard/GuideProfile";
 
-// Turista
 import TouristDashboard from "./components/TouristDashboard/TouristDashboard";
 import ExploreTours from "./components/TouristDashboard/ExploreTours";
 import MyBookings from "./components/TouristDashboard/MyBookings";
 import TouristProfile from './components/TouristDashboard/TouristProfile';
 
 /**
- * COMPONENTE: RequireAuth - Protege rutas según el rol del usuario
+ * RequireAuth: Protege rutas y maneja la lógica de aprobación de guías
  */
-function RequireAuth({ children, roles }) {
+function RequireAuth({ roles }) {
   const { user, profile, loading } = useAuth();
 
   if (loading) return <LoadingScreen />;
   if (!user) return <Navigate to="/login" replace />;
-
   if (roles && !profile) return <LoadingScreen />;
 
+  // Lógica crítica: Si es guía pero no está aprobado, se manda a la sala de espera
+  if (profile?.role === "guide" && profile?.status !== "approved" && !roles.includes("admin")) {
+    return <Navigate to="/waiting-approval" replace />;
+  }
+
   if (roles && !roles.includes(profile?.role)) {
-    console.warn(`Acceso restringido: Rol '${profile?.role}' no autorizado.`);
     return <Navigate to="/" replace />;
   }
 
-  return children;
+  return <Outlet />; // Permite renderizar las rutas hijas
 }
 
-/**
- * COMPONENTE: DashboardRedirect - Maneja la redirección post-login
- */
-function DashboardRedirect({ profile }) {
-  if (!profile) return <LoadingScreen />;
+function DashboardRedirect() {
+  const { profile, loading } = useAuth();
+  if (loading) return <LoadingScreen />;
+  if (!profile) return <Navigate to="/" replace />;
+  
   const routes = { admin: "/admin", guide: "/guide", tourist: "/tourist" };
+  // Si el guía no está aprobado, redirigir a espera incluso si intenta entrar al login
+  if (profile.role === "guide" && profile.status !== "approved") return <Navigate to="/waiting-approval" replace />;
+  
   return <Navigate to={routes[profile.role] || "/"} replace />;
 }
 
@@ -65,83 +70,65 @@ function LoadingScreen() {
   return (
     <div className="v4-app-loading">
       <div className="v4-spinner" />
-      <p>Cargando TourMate...</p>
+      <p>Cargando TourMate Medellín...</p>
     </div>
   );
 }
 
-/**
- * COMPONENTE: AppRoutes - Definición de la jerarquía de navegación
- */
 function AppRoutes() {
-  const { user, profile, loading } = useAuth();
+  const { user, loading } = useAuth();
 
   if (loading) return <LoadingScreen />;
 
   return (
     <Routes>
-      {/* --- SECCIÓN PÚBLICA --- */}
+      {/* SECCIÓN PÚBLICA */}
       <Route element={<MainLayout />}>
         <Route path="/" element={<HomePage />} />
         <Route path="/contact" element={<ContactPage />} />
         <Route path="/packages" element={<PackagesPage />} />
+        <Route path="/tour/:id" element={<TourDetailPage />} />
+        <Route path="/waiting-approval" element={<WaitingApproval />} />
+        
         <Route 
           path="/login" 
-          element={user ? <DashboardRedirect profile={profile} /> : <LoginPage />} 
+          element={user ? <DashboardRedirect /> : <LoginPage />} 
         />
         <Route 
           path="/register" 
-          element={user ? <DashboardRedirect profile={profile} /> : <RegisterPage />} 
+          element={user ? <DashboardRedirect /> : <RegisterPage />} 
         />
       </Route>
 
-      <Route path="/tour/:id" element={<TourDetailPage />} />
-
-      {/* --- DASHBOARD ADMIN --- */}
-      <Route
-        path="/admin"
-        element={
-          <RequireAuth roles={["admin"]}>
-            <AdminDashboard />
-          </RequireAuth>
-        }
-      >
-        <Route index element={<Navigate to="guides" replace />} />
-        <Route path="guides" element={<ApproveGuides />} />
-        <Route path="tours" element={<ApproveTours />} />
-        <Route path="analytics" element={<SiteAnalytics />} />
+      {/* DASHBOARD ADMIN (Rutas Protegidas) */}
+      <Route element={<RequireAuth roles={["admin"]} />}>
+        <Route path="/admin" element={<AdminDashboard />}>
+          <Route index element={<Navigate to="guides" replace />} />
+          <Route path="guides" element={<ApproveGuides />} />
+          <Route path="tours" element={<ApproveTours />} />
+          <Route path="analytics" element={<SiteAnalytics />} />
+        </Route>
       </Route>
       
-      {/* --- DASHBOARD GUÍA --- */}
-      <Route
-        path="/guide"
-        element={
-          <RequireAuth roles={["guide"]}>
-            <GuideDashboard />
-          </RequireAuth>
-        }
-      >
-        <Route index element={<Navigate to="my-tours" replace />} />
-        <Route path="my-tours" element={<MyTours />} />
-        <Route path="create-tour" element={<CreateTour />} />
-        <Route path="bookings" element={<Bookings />} />
-        <Route path="profile" element={<GuideProfile userData={profile} />} />
-        <Route path="stats" element={<div>Próximamente: Mis Ganancias</div>} />
+      {/* DASHBOARD GUÍA (Rutas Protegidas) */}
+      <Route element={<RequireAuth roles={["guide"]} />}>
+        <Route path="/guide" element={<GuideDashboard />}>
+          <Route index element={<Navigate to="my-tours" replace />} />
+          <Route path="my-tours" element={<MyTours />} />
+          <Route path="create-tour" element={<CreateTour />} />
+          <Route path="bookings" element={<Bookings />} />
+          <Route path="profile" element={<GuideProfile />} />
+        </Route>
       </Route>
       
-      {/* --- DASHBOARD TURISTA --- */}
-      <Route
-        path="/tourist"
-        element={
-          <RequireAuth roles={["tourist"]}>
-            <TouristDashboard />
-          </RequireAuth>
-        }
-      >
-        <Route index element={<Navigate to="explore" replace />} />
-        <Route path="explore" element={<ExploreTours />} />
-        <Route path="my-bookings" element={<MyBookings />} />
-        <Route path="profile" element={<TouristProfile />} />
+      {/* DASHBOARD TURISTA (Rutas Protegidas) */}
+      <Route element={<RequireAuth roles={["tourist"]} />}>
+        <Route path="/tourist" element={<TouristDashboard />}>
+          <Route index element={<Navigate to="explore" replace />} />
+          <Route path="explore" element={<ExploreTours />} />
+          <Route path="my-bookings" element={<MyBookings />} />
+          <Route path="profile" element={<TouristProfile />} />
+        </Route>
       </Route>
 
       <Route path="*" element={<Navigate to="/" replace />} />
@@ -152,12 +139,7 @@ function AppRoutes() {
 export default function App() {
   return (
     <AuthProvider>
-      <BrowserRouter
-        future={{
-          v7_startTransition: true,
-          v7_relativeSplatPath: true,
-        }}
-      >
+      <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
         <div className="v4-app-main-wrapper">
           <AppRoutes />
         </div>
@@ -166,12 +148,15 @@ export default function App() {
   );
 }
 
-// Estilos globales integrados para el Spinner y Wrapper
+// Estilos dinámicos para una experiencia fluida
 const style = document.createElement('style');
 style.innerHTML = `
-  .v4-app-loading { height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; background: #ffffff; font-family: 'Inter', sans-serif; }
-  .v4-spinner { width: 45px; height: 45px; border: 4px solid #f1f5f9; border-top: 4px solid #ff5a3c; border-radius: 50%; animation: v4-spin 0.8s linear infinite; margin-bottom: 15px; }
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap');
+  :root { --tm-orange: #ff5a3c; --tm-gray: #f1f5f9; }
+  body { margin: 0; font-family: 'Inter', sans-serif; -webkit-font-smoothing: antialiased; }
+  .v4-app-loading { height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; background: #ffffff; }
+  .v4-spinner { width: 50px; height: 50px; border: 5px solid var(--tm-gray); border-top: 5px solid var(--tm-orange); border-radius: 50%; animation: v4-spin 1s cubic-bezier(0.4, 0, 0.2, 1) infinite; }
   @keyframes v4-spin { to { transform: rotate(360deg); } }
-  .v4-app-main-wrapper { min-height: 100vh; display: flex; flex-direction: column; background: #ffffff; }
+  .v4-app-main-wrapper { min-height: 100vh; overflow-x: hidden; }
 `;
 document.head.appendChild(style);
