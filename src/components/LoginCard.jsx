@@ -5,7 +5,7 @@ import ModalNotificacion from "./ModalNotificacion";
 import "../styles/LoginCard.css";
 
 export default function LoginCard() {
-  const { login } = useAuth();
+  const { login, loginWithGoogle } = useAuth(); // Asumiendo que loginWithGoogle existe en tu context
   const navigate = useNavigate();
   const [form, setForm] = useState({ email: "", password: "" });
   const [loading, setLoading] = useState(false);
@@ -14,6 +14,22 @@ export default function LoginCard() {
 
   const handleChange = (e) => setForm({ ...form, [e.target.name]: e.target.value });
 
+  // --- LÓGICA DE REDIRECCIÓN REUTILIZABLE ---
+  const handleRoleRedirect = (profile) => {
+    if (profile?.role === "guide") {
+      // Si es guía, verificamos si está aprobado por el admin
+      if (profile.status === "approved") {
+        navigate("/guide-dashboard");
+      } else {
+        navigate("/waiting-approval");
+      }
+    } else {
+      // Si es turista, entra directo
+      navigate("/tourist");
+    }
+  };
+
+  // --- LOGIN TRADICIONAL ---
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!form.email || !form.password) {
@@ -22,21 +38,15 @@ export default function LoginCard() {
     }
     setLoading(true);
     try {
-      // 1. Obtenemos el perfil directamente del login (según la mejora del context)
       const { profile } = await login(form.email, form.password);
-      
       setNotif({ type: "success", title: "¡Bienvenido!", message: "Iniciando sesión..." });
 
-      // 2. Redirección inteligente basada en el rol de Firestore
       setTimeout(() => {
-        if (profile?.role === "guide") {
-          navigate("/guide-dashboard"); // Cambia esto por tu ruta real de guía
-        } else {
-          navigate("/tourist"); // Ruta estándar para turistas
-        }
+        handleRoleRedirect(profile);
       }, 1000);
 
     } catch (err) {
+      console.error(err);
       const msg =
         err.code === "auth/user-not-found" ? "No existe una cuenta con ese correo." :
         err.code === "auth/wrong-password" ? "Contraseña incorrecta." :
@@ -48,13 +58,46 @@ export default function LoginCard() {
     }
   };
 
+  // --- LOGIN CON GOOGLE ---
+  const handleGoogleLogin = async () => {
+    setLoading(true);
+    try {
+      const { profile } = await loginWithGoogle();
+      setNotif({ type: "success", title: "Acceso con Google", message: "Sincronizando cuenta..." });
+      
+      setTimeout(() => {
+        handleRoleRedirect(profile);
+      }, 1000);
+    } catch (err) {
+      console.error(err);
+      setNotif({ type: "error", title: "Error", message: "No se pudo conectar con Google." });
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
-    <div className="auth-page-wrapper"> {/* Envoltura para centrar y aplicar fondo */}
+    <div className="auth-page-wrapper">
       <form className="auth-card" onSubmit={handleSubmit} noValidate>
         <div className="auth-card__header">
           <div className="auth-card__icon">✈</div>
           <h2 className="auth-card__title">Iniciar sesión</h2>
           <p className="auth-card__sub">Accede a tu cuenta de Tourmate</p>
+        </div>
+
+        {/* BOTÓN DE GOOGLE */}
+        <button 
+          type="button" 
+          className="auth-card__google-btn" 
+          onClick={handleGoogleLogin}
+          disabled={loading}
+        >
+          <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/layout/google.svg" alt="Google" />
+          Continuar con Google
+        </button>
+
+        <div className="auth-card__divider">
+          <span>o usa tu correo</span>
         </div>
 
         <div className="auth-card__field">
@@ -66,7 +109,6 @@ export default function LoginCard() {
             value={form.email}
             onChange={handleChange}
             placeholder="tu@email.com"
-            autoComplete="email"
           />
         </div>
 
@@ -80,7 +122,6 @@ export default function LoginCard() {
               value={form.password}
               onChange={handleChange}
               placeholder="••••••••"
-              autoComplete="current-password"
             />
             <button type="button" className="auth-card__toggle" onClick={() => setShowPwd(!showPwd)}>
               {showPwd ? "Ocultar" : "Mostrar"}
@@ -89,7 +130,7 @@ export default function LoginCard() {
         </div>
 
         <button type="submit" className="auth-card__submit" disabled={loading}>
-          {loading ? <span className="auth-card__spinner" /> : "Iniciar sesión"}
+          {loading ? <div className="auth-card__spinner" /> : "Iniciar sesión"}
         </button>
 
         <p className="auth-card__footer-text">
