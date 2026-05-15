@@ -201,7 +201,7 @@ const AdminApproveTours = () => {
       </div>
 
       {/* ESTILOS INYECTADOS */}
-      <style jsx>{`
+      <style>{`
         .admin-dashboard-wrapper {
           padding: 30px;
           background: #f8fafc;

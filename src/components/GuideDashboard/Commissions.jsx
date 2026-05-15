@@ -160,7 +160,7 @@ const Commissions = ({ completedTours = [] }) => {
         </div>
       </div>
 
-      <style jsx>{`
+      <style>{`
         .stats-container {
           padding: 10px;
         }

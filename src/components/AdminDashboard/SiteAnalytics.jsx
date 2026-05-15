@@ -214,7 +214,7 @@ const SiteAnalytics = () => {
         </div>
       </div>
 
-      <style jsx>{`
+      <style>{`
         .analytics-secondary-grid {
           display: grid;
           grid-template-columns: 1fr 1fr;

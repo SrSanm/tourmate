@@ -228,7 +228,7 @@ const ApproveGuides = () => {
         )}
       </div>
 
-      <style jsx>{`
+      <style>{`
         /* Estilos internos rápidos para complementar el CSS global */
         .admin-content-layout {
           display: flex;
