@@ -3,6 +3,7 @@ import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom';
 import { auth } from '../../firebase/firebaseConfig';
 import { signOut } from 'firebase/auth';
 import "../../styles/AdminDashboard.css";
+import ModalNotificacion from "../../components/ModalNotificacion";
 
 /**
  * Componente: AdminDashboard

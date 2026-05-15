@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { db } from '../../firebase/firebaseConfig';
+import ModalNotificacion from "../../components/ModalNotificacion";
 import { 
   collection, 
   query, 
@@ -14,20 +15,20 @@ import '../../styles/AdminDashboard.css';
 
 /**
  * COMPONENTE: AdminApproveTours
- * Propósito: Gestionar la curaduría de contenidos de TourMate Medellín.
- * Lógica: Cambia isApproved y active a true para reflejar en el Home.
+ * Propósito: Gestión profesional de curaduría para TourMate Medellín.
+ * Corrige errores de anidación de tablas y variables no definidas.
  */
 const AdminApproveTours = () => {
   const [tours, setTours] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('pending'); // 'pending' o 'approved'
-  const [stats, setStats] = useState({ pending: 0, total: 0 });
+  const [stats, setStats] = useState({ pending: 0, approved: 0 });
 
-  // --- SUSCRIPCIÓN EN TIEMPO REAL A FIRESTORE ---
+  // --- MONITOREO DE DATOS EN TIEMPO REAL ---
   useEffect(() => {
     setLoading(true);
     
-    // Consulta: traemos según el filtro de la pestaña activa
+    // Consulta filtrada según pestaña
     const q = query(
       collection(db, "tours"),
       where("isApproved", "==", filter === 'approved')
@@ -41,146 +42,99 @@ const AdminApproveTours = () => {
       
       setTours(toursData);
       
-      // Actualizar contadores rápidos
+      // Actualización de contadores dinámicos
       if (filter === 'pending') {
         setStats(prev => ({ ...prev, pending: toursData.length }));
+      } else {
+        setStats(prev => ({ ...prev, approved: toursData.length }));
       }
+      
       setLoading(false);
     }, (error) => {
-      console.error("Error en Admin Dashboard:", error);
+      console.error("Error crítico en el motor de tours:", error);
       setLoading(false);
     });
 
     return () => unsubscribe();
   }, [filter]);
 
-  // --- LÓGICA DE APROBACIÓN (PUBLICACIÓN) ---
+  // --- ACCIONES DE ADMINISTRACIÓN ---
   const handleApprove = async (id) => {
     try {
       const tourRef = doc(db, "tours", id);
-      
-      // Sincronizamos con los campos que busca el HomePage.jsx
       await updateDoc(tourRef, {
         isApproved: true,
-        active: true, // Campo que usa tu Home actual
-        lastModified: serverTimestamp()
+        active: true,
+        approvedAt: serverTimestamp(),
+        status: 'published'
       });
-
-      alert("Tour aprobado. Ya es visible en la sección de rutas de Medellín.");
+      alert("✅ Tour publicado exitosamente en el Home.");
     } catch (error) {
-      alert("Error al actualizar el estado del tour.");
+      console.error("Error al aprobar:", error);
+      alert("No se pudo aprobar el tour. Revisa los permisos.");
     }
   };
 
-  // --- LÓGICA DE RECHAZO / ELIMINACIÓN ---
   const handleReject = async (id) => {
-    const confirm = window.confirm("¿Seguro que deseas eliminar esta propuesta de tour?");
-    if (confirm) {
+    const confirmDelete = window.confirm("¿Estás seguro de eliminar esta propuesta? Esta acción es irreversible.");
+    if (confirmDelete) {
       try {
         await deleteDoc(doc(db, "tours", id));
       } catch (error) {
-        alert("No se pudo eliminar el documento.");
+        alert("Error al eliminar el documento.");
       }
     }
   };
 
-  // --- RENDERIZADO DE FILAS DE LA TABLA ---
-  const renderTourRows = () => {
-    if (tours.length === 0) {
-      return (
-        <div className="admin-empty-state">
-          <p>No hay experiencias en esta categoría.</p>
-        </div>
-      );
-    }
-
-    return tours.map((item) => (
-      <tr key={item.id} className="admin-table-row animate-fade-in">
-        <td>
-          <div className="admin-cell-image">
-            <img src={item.image} alt="Tour Preview" />
-            <div className="admin-cell-text">
-              <strong>{item.name}</strong>
-              <span>{item.location || 'Medellín'}</span>
-            </div>
-          </div>
-        </td>
-        <td>
-          <div className="admin-guide-info">
-            <p>{item.guideName}</p>
-            <small>ID: {item.guideId?.substring(0, 8)}</small>
-          </div>
-        </td>
-        <td>
-          <span className="admin-category-tag">{item.category}</span>
-        </td>
-        <td>
-          <div className="admin-price-info">
-            <strong>${Number(item.price).toLocaleString()}</strong>
-            <small>COP</small>
-          </div>
-        </td>
-        <td className="admin-actions-cell">
-          {filter === 'pending' ? (
-            <>
-              <button onClick={() => handleApprove(item.id)} className="btn-action-approve">
-                ✅ Aprobar
-              </button>
-              <button onClick={() => handleReject(item.id)} className="btn-action-reject">
-                ❌ Rechazar
-              </button>
-            </>
-          ) : (
-            <button disabled className="btn-action-published">Publicado</button>
-          )}
-        </td>
-      </tr>
-    ));
-  };
-
   return (
     <div className="admin-dashboard-wrapper">
-      {/* HEADER DEL DASHBOARD */}
+      {/* 1. HEADER DE CONTROL */}
       <header className="admin-main-header">
         <div className="header-title">
-          <h1>Gestión de Contenidos</h1>
-          <p>Control de calidad para experiencias en la plataforma.</p>
+          <h1>Curaduría de Experiencias</h1>
+          <p>Validación de rutas y calidad de guías para Medellín.</p>
         </div>
         
         <div className="admin-stats-bar">
-          <div className="stat-item">
+          <div className="stat-item highlight">
             <span className="stat-value">{stats.pending}</span>
-            <span className="stat-label">Pendientes</span>
+            <span className="stat-label">Por Validar</span>
           </div>
           <div className="stat-item">
-            <span className="stat-label">Estado del Servidor:</span>
-            <span className="stat-status-online">Online</span>
+            <span className="stat-value">{stats.approved}</span>
+            <span className="stat-label">Publicados</span>
           </div>
         </div>
       </header>
 
-      {/* NAVEGACIÓN DE FILTROS */}
+      {/* 2. SISTEMA DE TABS */}
       <nav className="admin-tabs">
         <button 
           className={filter === 'pending' ? 'active' : ''} 
           onClick={() => setFilter('pending')}
         >
-          Tours Pendientes
+          ⏱️ Esperando Aprobación
         </button>
         <button 
           className={filter === 'approved' ? 'active' : ''} 
           onClick={() => setFilter('approved')}
         >
-          Tours Aprobados
+          🌟 Tours Activos
         </button>
       </nav>
 
-      {/* TABLA DE GESTIÓN FULL SCREEN */}
+      {/* 3. CONTENEDOR DE DATOS (TABLA LIMPIA) */}
       <div className="admin-table-container">
         {loading ? (
           <div className="admin-loading-screen">
             <div className="spinner-admin"></div>
-            <p>Sincronizando con base de datos...</p>
+            <p>Conectando con la base de datos de TourMate...</p>
+          </div>
+        ) : tours.length === 0 ? (
+          <div className="admin-empty-state">
+            <div className="empty-icon">📂</div>
+            <h3>No hay registros</h3>
+            <p>No se encontraron tours con el estado "{filter}".</p>
           </div>
         ) : (
           <table className="admin-data-table">
@@ -188,105 +142,180 @@ const AdminApproveTours = () => {
               <tr>
                 <th>Experiencia / Tour</th>
                 <th>Guía Responsable</th>
-                <th>Categoría</th>
+                <th>Ubicación</th>
                 <th>Precio</th>
-                <th>Acciones</th>
+                <th>Estado / Acciones</th>
               </tr>
             </thead>
             <tbody>
-              {renderTourRows()}
+              {tours.map((tour) => (
+                <tr key={tour.id} className="admin-table-row">
+                  <td>
+                    <div className="admin-cell-image">
+                      <img src={tour.image || 'https://via.placeholder.com/150'} alt="Tour" />
+                      <div className="admin-cell-text">
+                        <strong>{tour.name || tour.title}</strong>
+                        <span className="category-badge">{tour.category}</span>
+                      </div>
+                    </div>
+                  </td>
+                  <td>
+                    <div className="admin-guide-info">
+                      <p>{tour.guideName || "Guía Independiente"}</p>
+                      <small>{tour.guideEmail || "Sin email"}</small>
+                    </div>
+                  </td>
+                  <td>
+                    <span className="location-text">📍 {tour.location || 'Medellín'}</span>
+                  </td>
+                  <td>
+                    <div className="admin-price-info">
+                      <strong>${Number(tour.price).toLocaleString()}</strong>
+                      <small>COP</small>
+                    </div>
+                  </td>
+                  <td className="admin-actions-cell">
+                    {filter === 'pending' ? (
+                      <div className="btn-group">
+                        <button 
+                          onClick={() => handleApprove(tour.id)} 
+                          className="btn-action-approve"
+                        >
+                          Aprobar
+                        </button>
+                        <button 
+                          onClick={() => handleReject(tour.id)} 
+                          className="btn-action-reject"
+                        >
+                          Eliminar
+                        </button>
+                      </div>
+                    ) : (
+                      <span className="status-published-tag">✅ En línea</span>
+                    )}
+                  </td>
+                </tr>
+              ))}
             </tbody>
           </table>
         )}
       </div>
 
-      {/* ESTILOS INYECTADOS */}
+      {/* 4. ESTILOS REFORZADOS */}
       <style>{`
         .admin-dashboard-wrapper {
-          padding: 30px;
-          background: #f8fafc;
+          padding: 40px;
+          background: #f1f5f9;
           min-height: 100vh;
-          width: 100%;
-          box-sizing: border-box;
+          font-family: 'Inter', system-ui, sans-serif;
         }
+        
         .admin-main-header {
           display: flex;
           justify-content: space-between;
-          align-items: center;
-          margin-bottom: 30px;
+          align-items: flex-end;
+          margin-bottom: 40px;
         }
-        .header-title h1 { font-size: 2rem; color: #0f172a; margin: 0; }
-        
-        .admin-tabs {
+
+        .header-title h1 { 
+          font-size: 2.2rem; 
+          font-weight: 800; 
+          color: #1e293b; 
+          margin: 0; 
+        }
+
+        .admin-stats-bar { display: flex; gap: 20px; }
+        .stat-item {
+          background: white;
+          padding: 15px 25px;
+          border-radius: 16px;
           display: flex;
-          gap: 10px;
-          margin-bottom: 20px;
-          border-bottom: 2px solid #e2e8f0;
+          flex-direction: column;
+          box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);
         }
+        .stat-item.highlight { border-top: 4px solid #ff5a3c; }
+        .stat-value { font-size: 1.5rem; font-weight: 800; color: #0f172a; }
+        .stat-label { font-size: 0.8rem; color: #64748b; font-weight: 600; text-transform: uppercase; }
+
+        .admin-tabs { display: flex; gap: 15px; margin-bottom: 25px; }
         .admin-tabs button {
-          padding: 12px 25px;
-          background: none;
+          padding: 12px 24px;
+          background: #e2e8f0;
           border: none;
+          border-radius: 12px;
           cursor: pointer;
-          font-weight: 600;
-          color: #64748b;
-          transition: 0.3s;
+          font-weight: 700;
+          color: #475569;
+          transition: all 0.3s;
         }
         .admin-tabs button.active {
-          color: #ff5a3c;
-          border-bottom: 3px solid #ff5a3c;
+          background: #ff5a3c;
+          color: white;
+          box-shadow: 0 10px 15px -3px rgba(255, 90, 60, 0.3);
         }
 
         .admin-table-container {
-          background: #fff;
-          border-radius: 15px;
-          box-shadow: 0 4px 20px rgba(0,0,0,0.05);
+          background: white;
+          border-radius: 24px;
           overflow: hidden;
-          width: 100%;
-        }
-        .admin-data-table {
-          width: 100%;
-          border-collapse: collapse;
-          text-align: left;
-        }
-        .admin-data-table th {
-          background: #f1f5f9;
-          padding: 18px;
-          font-size: 0.9rem;
-          color: #475569;
-          text-transform: uppercase;
-        }
-        .admin-data-table td {
-          padding: 15px 18px;
-          border-bottom: 1px solid #f1f5f9;
-          vertical-align: middle;
+          box-shadow: 0 20px 25px -5px rgba(0,0,0,0.05);
         }
 
-        .admin-cell-image { display: flex; align-items: center; gap: 15px; }
-        .admin-cell-image img {
-          width: 60px; height: 60px; border-radius: 10px; object-fit: cover;
+        .admin-data-table { width: 100%; border-collapse: collapse; }
+        .admin-data-table th {
+          background: #f8fafc;
+          padding: 20px;
+          text-align: left;
+          font-size: 0.75rem;
+          text-transform: uppercase;
+          color: #94a3b8;
+          letter-spacing: 0.05em;
         }
-        .admin-cell-text strong { display: block; color: #1e293b; }
-        
-        .admin-actions-cell { display: flex; gap: 8px; }
+
+        .admin-table-row:hover { background: #f8fafc; }
+        .admin-data-table td { padding: 20px; border-bottom: 1px solid #f1f5f9; }
+
+        .admin-cell-image { display: flex; align-items: center; gap: 15px; }
+        .admin-cell-image img { 
+          width: 50px; height: 50px; border-radius: 12px; object-fit: cover; 
+        }
+        .category-badge {
+          background: #eff6ff;
+          color: #3b82f6;
+          padding: 2px 8px;
+          border-radius: 6px;
+          font-size: 0.7rem;
+          font-weight: 700;
+          display: inline-block;
+          margin-top: 4px;
+        }
+
+        .admin-price-info strong { font-size: 1.1rem; color: #0f172a; }
+        .admin-price-info small { margin-left: 4px; color: #94a3b8; }
+
+        .btn-group { display: flex; gap: 10px; }
         .btn-action-approve {
-          background: #dcfce7; color: #166534; border: none;
-          padding: 8px 15px; border-radius: 8px; font-weight: 700; cursor: pointer;
+          background: #10b981; color: white; border: none;
+          padding: 8px 16px; border-radius: 8px; font-weight: 700; cursor: pointer;
         }
         .btn-action-reject {
-          background: #fee2e2; color: #991b1b; border: none;
-          padding: 8px 15px; border-radius: 8px; font-weight: 700; cursor: pointer;
+          background: #fee2e2; color: #ef4444; border: none;
+          padding: 8px 16px; border-radius: 8px; font-weight: 700; cursor: pointer;
         }
-        .btn-action-published {
-          background: #f1f5f9; color: #94a3b8; border: none;
-          padding: 8px 15px; border-radius: 8px; font-weight: 700;
+        .status-published-tag {
+          color: #10b981; font-weight: 800; font-size: 0.85rem;
         }
-        
-        .admin-empty-state { padding: 100px; text-align: center; color: #94a3b8; }
-        
-        @media (max-width: 900px) {
-          .admin-data-table th:nth-child(3), .admin-data-table td:nth-child(3) { display: none; }
+
+        .admin-loading-screen { padding: 80px; text-align: center; }
+        .spinner-admin {
+          width: 40px; height: 40px; border: 4px solid #f3f3f3;
+          border-top: 4px solid #ff5a3c; border-radius: 50%;
+          animation: spin 1s linear infinite; margin: 0 auto 20px;
         }
+        @keyframes spin { 100% { transform: rotate(360deg); } }
+
+        .admin-empty-state { padding: 80px; text-align: center; color: #94a3b8; }
+        .empty-icon { font-size: 3rem; margin-bottom: 15px; }
       `}</style>
     </div>
   );

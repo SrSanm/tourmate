@@ -19,6 +19,21 @@ import {
   onSnapshot,
 } from "firebase/firestore";
 
+const refreshProfile = async () => {
+  if (user) {
+    const docRef = doc(db, "users", user.uid);
+    const docSnap = await getDoc(docRef);
+    if (docSnap.exists()) setProfile(docSnap.data());
+  }
+
+// CRÍTICO: Agrégala al objeto value
+return (
+  <AuthContext.Provider value={{ user, profile, refreshProfile, logout, loading }}>
+    {children}
+  </AuthContext.Provider>
+);
+
+};
 const AuthContext = createContext(null);
 
 export function AuthProvider({ children }) {
@@ -232,3 +247,4 @@ export function useAuth() {
   }
   return context;
 }
+

@@ -4,6 +4,7 @@ import { auth, db } from '../../firebase/firebaseConfig';
 import { doc, getDoc } from 'firebase/firestore';
 import { signOut } from 'firebase/auth';
 import '../../styles/GuideDashboard.css';
+import ModalNotificacion from "../../components/ModalNotificacion";
 
 /**
  * Componente: GuideDashboard

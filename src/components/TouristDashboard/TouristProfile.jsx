@@ -226,7 +226,7 @@ const TouristProfile = () => {
         </aside>
       </div>
 
-      <style jsx>{`
+      <style>{`
         .profile-page-wrapper {
           width: 100%;
           max-width: 1100px;

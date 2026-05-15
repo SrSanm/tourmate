@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import '../../styles/GuideDashboard.css';
+import ModalNotificacion from "../../components/ModalNotificacion";
 
 /**
  * Componente: Commissions

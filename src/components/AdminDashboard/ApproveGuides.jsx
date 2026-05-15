@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { db } from '../../firebase/firebaseConfig';
+import ModalNotificacion from "../../components/ModalNotificacion";
 import { 
   collection, 
   query, 

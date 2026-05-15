@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { auth, db } from '../../firebase/firebaseConfig';
 import { doc, updateDoc } from 'firebase/firestore';
-
+import ModalNotificacion from "../../components/ModalNotificacion";
 const GuideProfile = ({ userData }) => {
   const [profile, setProfile] = useState({
     name: userData.name || '',
