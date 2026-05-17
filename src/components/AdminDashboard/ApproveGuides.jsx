@@ -1,178 +1,163 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { db } from '../../firebase/firebaseConfig';
-import ModalNotificacion from "../../components/ModalNotificacion";
-import { 
-  collection, 
-  query, 
-  where, 
-  getDocs, 
-  updateDoc, 
-  doc, 
-  onSnapshot 
-} from 'firebase/firestore';
+import React, { useState, useEffect, useMemo } from "react";
+import { db } from "../../firebase/firebaseConfig";
+import {
+  collection,
+  query,
+  where,
+  onSnapshot,
+  updateDoc,
+  doc
+} from "firebase/firestore";
+import { useAuth } from "../../context/AuthContext";
 
 /**
- * Componente: ApproveGuides
- * Propósito: Módulo administrativo para la auditoría y validación de nuevos guías.
+ * ApproveGuides - Módulo administrativo para validar guías pendientes.
  */
 const ApproveGuides = () => {
-  // --- ESTADOS ---
+  const { user } = useAuth();
   const [guides, setGuides] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
   const [notification, setNotification] = useState({ show: false, msg: "", type: "" });
   const [selectedGuide, setSelectedGuide] = useState(null);
 
-  // --- ESCUCHA EN TIEMPO REAL ---
+  // Listener en tiempo real: solo guías con status "pending"
   useEffect(() => {
-    // Usamos onSnapshot para que si otro admin aprueba a alguien, la lista se actualice sola
     const q = query(
-      collection(db, "users"), 
-      where("role", "==", "guide"), 
+      collection(db, "users"),
+      where("role", "==", "guide"),
       where("status", "==", "pending")
     );
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const pendingList = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }));
-      setGuides(pendingList);
-      setLoading(false);
-    }, (error) => {
-      console.error("Error en Snapshot:", error);
-      showToast("Error al conectar con la base de datos", "error");
-      setLoading(false);
-    });
+    const unsubscribe = onSnapshot(
+      q,
+      (snapshot) => {
+        setGuides(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
+        setLoading(false);
+      },
+      (error) => {
+        console.error("Error en Snapshot:", error);
+        showToast("Error al conectar con la base de datos", "error");
+        setLoading(false);
+      }
+    );
 
     return () => unsubscribe();
   }, []);
 
-  // --- UTILIDADES ---
   const showToast = (msg, type) => {
     setNotification({ show: true, msg, type });
     setTimeout(() => setNotification({ show: false, msg: "", type: "" }), 4000);
   };
 
-  // Filtrado optimizado con useMemo
   const filteredGuides = useMemo(() => {
-    return guides.filter(g => 
-      g.name?.toLowerCase().includes(searchTerm.toLowerCase()) || 
-      g.email?.toLowerCase().includes(searchTerm.toLowerCase())
+    const term = searchTerm.toLowerCase();
+    return guides.filter(g =>
+      g.name?.toLowerCase().includes(term) ||
+      g.email?.toLowerCase().includes(term)
     );
   }, [guides, searchTerm]);
 
-  // --- ACCIONES ---
   const processGuide = async (id, name, action) => {
-    const isApprove = action === 'approved';
-    const confirmMsg = `¿Confirmas que deseas ${isApprove ? 'DAR ACCESO' : 'DENEGAR'} a ${name}?`;
-
-    if (!window.confirm(confirmMsg)) return;
+    const isApprove = action === "approved";
+    if (!window.confirm(`¿Confirmas ${isApprove ? "APROBAR" : "RECHAZAR"} a ${name}?`)) return;
 
     try {
-      const guideRef = doc(db, "users", id);
-      await updateDoc(guideRef, { 
+      await updateDoc(doc(db, "users", id), {
         status: action,
         validatedAt: new Date().toISOString(),
-        validatedBy: "SuperAdmin_Node_01"
+        validatedBy: user?.uid || "admin"
       });
-
-      showToast(`Guía ${isApprove ? 'aprobado' : 'rechazado'} correctamente`, "success");
+      showToast(`Guía ${isApprove ? "aprobado ✅" : "rechazado ❌"} correctamente`, "success");
       if (selectedGuide?.id === id) setSelectedGuide(null);
     } catch (error) {
-      console.error("Error en validación:", error);
+      console.error(error);
       showToast("No se pudo procesar la solicitud", "error");
     }
   };
 
-  // --- RENDERIZADO ---
-  if (loading) return (
-    <div className="admin-loader-container">
-      <div className="spinner"></div>
-      <p>Consultando registros de seguridad...</p>
-    </div>
-  );
+  if (loading) {
+    return (
+      <div className="admin-loader-container">
+        <div className="spinner"></div>
+        <p>Consultando registros...</p>
+      </div>
+    );
+  }
 
   return (
     <div className="admin-section animate-fade-in">
-      {/* Toast Notification */}
+      {/* TOAST */}
       {notification.show && (
         <div className={`toast-alert ${notification.type}`}>
-          {notification.type === 'success' ? '✅' : '❌'} {notification.msg}
+          {notification.type === "success" ? "✅" : "❌"} {notification.msg}
         </div>
       )}
 
-      {/* Header del Módulo */}
+      {/* HEADER */}
       <div className="section-header-admin">
-        <div className="header-text">
+        <div>
           <h2>Validación de Credenciales</h2>
-          <p>Revisa y autoriza a los nuevos guías que desean unirse a TourMate.</p>
+          <p>Revisa y autoriza nuevos guías en TourMate</p>
         </div>
         <div className="header-actions">
-          <div className="search-box">
-            <span className="search-icon">🔍</span>
-            <input 
-              type="text" 
-              placeholder="Buscar por nombre o correo..." 
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-            />
-          </div>
+          <input
+            type="text"
+            placeholder="Buscar por nombre o email..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+          />
           <div className="badge-count">Pendientes: {guides.length}</div>
         </div>
       </div>
 
+      {/* CONTENIDO */}
       <div className="admin-content-layout">
-        {/* Tabla / Lista Principal */}
         <div className="guides-table-container">
           {filteredGuides.length === 0 ? (
-            <div className="empty-state-admin">
-              <p>No se encontraron guías pendientes con esos criterios.</p>
+            <div style={{ padding: "40px", textAlign: "center", color: "#94a3b8" }}>
+              {guides.length === 0 ? "🎉 No hay guías pendientes de validación." : "No coincide la búsqueda."}
             </div>
           ) : (
             <table className="admin-table">
               <thead>
                 <tr>
-                  <th>Nombre Completo</th>
-                  <th>Contacto</th>
-                  <th>Registro</th>
+                  <th>Nombre</th>
+                  <th>Email</th>
+                  <th>Fecha de Registro</th>
                   <th>Acciones</th>
                 </tr>
               </thead>
               <tbody>
                 {filteredGuides.map(guide => (
-                  <tr key={guide.id} className={selectedGuide?.id === guide.id ? 'row-selected' : ''}>
-                    <td onClick={() => setSelectedGuide(guide)} className="clickable-cell">
-                      <div className="user-info-cell">
-                        <div className="avatar-small">{guide.name?.charAt(0)}</div>
-                        <span>{guide.name}</span>
-                      </div>
+                  <tr key={guide.id} className={selectedGuide?.id === guide.id ? 'selected-row' : ''}>
+                    <td
+                      onClick={() => setSelectedGuide(guide)}
+                      style={{ cursor: "pointer", fontWeight: 600, color: "#1e293b" }}
+                    >
+                      {guide.name || '—'}
                     </td>
+                    <td>{guide.email}</td>
                     <td>
-                      <div className="contact-info-cell">
-                        <small>{guide.email}</small>
-                        <br />
-                        <small>{guide.phone || 'N/A'}</small>
-                      </div>
+                      {guide.createdAt?.seconds
+                        ? new Date(guide.createdAt.seconds * 1000).toLocaleDateString('es-CO')
+                        : "Sin fecha"}
                     </td>
-                    <td>{new Date(guide.createdAt?.seconds * 1000).toLocaleDateString()}</td>
-                    <td>
-                      <div className="action-btn-group">
-                        <button 
-                          className="btn-approve-circle" 
-                          onClick={() => processGuide(guide.id, guide.name, 'approved')}
-                          title="Aprobar Guía"
-                        >
-                          ✓
-                        </button>
-                        <button 
-                          className="btn-reject-circle" 
-                          onClick={() => processGuide(guide.id, guide.name, 'rejected')}
-                          title="Rechazar Guía"
-                        >
-                          ✕
-                        </button>
-                      </div>
+                    <td className="action-cell">
+                      <button
+                        className="btn-approve-guide"
+                        onClick={() => processGuide(guide.id, guide.name, "approved")}
+                        title="Aprobar guía"
+                      >
+                        ✓ Aprobar
+                      </button>
+                      <button
+                        className="btn-reject-guide"
+                        onClick={() => processGuide(guide.id, guide.name, "rejected")}
+                        title="Rechazar guía"
+                      >
+                        ✕ Rechazar
+                      </button>
                     </td>
                   </tr>
                 ))}
@@ -181,48 +166,26 @@ const ApproveGuides = () => {
           )}
         </div>
 
-        {/* Panel Lateral de Detalles (Si se selecciona un guía) */}
+        {/* PANEL LATERAL DE DETALLE */}
         {selectedGuide && (
-          <aside className="guide-detail-panel animate-slide-left">
-            <button className="close-panel" onClick={() => setSelectedGuide(null)}>✕</button>
-            <div className="panel-header">
-              <div className="avatar-large">{selectedGuide.name?.charAt(0)}</div>
-              <h3>Detalles del Perfil</h3>
-            </div>
-            
-            <div className="panel-body">
-              <div className="detail-row">
-                <label>Nombre:</label>
-                <p>{selectedGuide.name}</p>
-              </div>
-              <div className="detail-row">
-                <label>Correo Electrónico:</label>
-                <p>{selectedGuide.email}</p>
-              </div>
-              <div className="detail-row">
-                <label>Biografía / Experiencia:</label>
-                <p className="bio-text">{selectedGuide.bio || "No proporcionó descripción adicional."}</p>
-              </div>
-              <div className="detail-row">
-                <label>Documentación:</label>
-                <div className="doc-placeholder">
-                  📄 Certificación_Turismo.pdf
-                </div>
-              </div>
-            </div>
-
-            <div className="panel-footer">
-              <button 
-                className="btn-full approve"
-                onClick={() => processGuide(selectedGuide.id, selectedGuide.name, 'approved')}
+          <aside className="guide-detail-panel">
+            <div className="detail-avatar">{selectedGuide.name?.charAt(0)?.toUpperCase() || 'G'}</div>
+            <h3>{selectedGuide.name}</h3>
+            <p className="detail-email">{selectedGuide.email}</p>
+            {selectedGuide.phone && <p>📞 {selectedGuide.phone}</p>}
+            {selectedGuide.bio && <p className="detail-bio">{selectedGuide.bio}</p>}
+            <div className="detail-actions">
+              <button
+                className="btn-approve-guide full"
+                onClick={() => processGuide(selectedGuide.id, selectedGuide.name, "approved")}
               >
-                Confirmar Registro
+                ✓ Aprobar Acceso
               </button>
-              <button 
-                className="btn-full reject"
-                onClick={() => processGuide(selectedGuide.id, selectedGuide.name, 'rejected')}
+              <button
+                className="btn-reject-guide full"
+                onClick={() => processGuide(selectedGuide.id, selectedGuide.name, "rejected")}
               >
-                Denegar Acceso
+                ✕ Rechazar
               </button>
             </div>
           </aside>
@@ -230,80 +193,39 @@ const ApproveGuides = () => {
       </div>
 
       <style>{`
-        /* Estilos internos rápidos para complementar el CSS global */
-        .admin-content-layout {
-          display: flex;
-          gap: 20px;
-          margin-top: 2rem;
-        }
-        .guides-table-container {
-          flex-grow: 1;
-          background: white;
-          border-radius: 15px;
-          overflow: hidden;
-          box-shadow: 0 4px 15px rgba(0,0,0,0.05);
-        }
-        .admin-table {
-          width: 100%;
-          border-collapse: collapse;
-          text-align: left;
-        }
-        .admin-table th {
-          background: #f8fafc;
-          padding: 1rem;
-          font-size: 0.8rem;
-          color: #64748b;
-          text-transform: uppercase;
-        }
-        .admin-table td {
-          padding: 1rem;
-          border-bottom: 1px solid #f1f5f9;
-        }
-        .clickable-cell { cursor: pointer; color: #1e293b; font-weight: 600; }
-        .clickable-cell:hover { color: #ff5a3c; }
-        .avatar-small {
-          width: 32px;
-          height: 32px;
-          background: #ff5a3c;
-          color: white;
-          border-radius: 50%;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          font-size: 0.8rem;
-          margin-right: 10px;
-        }
-        .user-info-cell { display: flex; align-items: center; }
-        .action-btn-group { display: flex; gap: 8px; }
-        .btn-approve-circle, .btn-reject-circle {
-          width: 35px;
-          height: 35px;
-          border-radius: 50%;
-          border: none;
-          cursor: pointer;
-          font-weight: bold;
-          transition: 0.2s;
-        }
-        .btn-approve-circle { background: #dcfce7; color: #166534; }
-        .btn-reject-circle { background: #fee2e2; color: #991b1b; }
-        .btn-approve-circle:hover { background: #166534; color: white; }
-        .btn-reject-circle:hover { background: #991b1b; color: white; }
-        
-        .toast-alert {
-          position: fixed;
-          top: 20px;
-          right: 20px;
-          padding: 1rem 2rem;
-          border-radius: 10px;
-          color: white;
-          z-index: 1000;
-          box-shadow: 0 5px 15px rgba(0,0,0,0.2);
-          animation: slideIn 0.3s ease;
-        }
-        .success { background: #10b981; }
-        .error { background: #ef4444; }
-        
-        @keyframes slideIn { from { transform: translateX(100%); } to { transform: translateX(0); } }
+        .section-header-admin { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 25px; flex-wrap: wrap; gap: 15px; }
+        .header-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+        .header-actions input { padding: 10px 16px; border: 1px solid #e2e8f0; border-radius: 10px; font-size: 0.9rem; outline: none; }
+        .header-actions input:focus { border-color: #ff5a3c; }
+        .badge-count { background: #fff7ed; color: #c2410c; padding: 8px 14px; border-radius: 10px; font-weight: 800; font-size: 0.85rem; }
+        .admin-content-layout { display: grid; grid-template-columns: 1fr auto; gap: 25px; }
+        .guides-table-container { overflow-x: auto; }
+        .admin-table { width: 100%; border-collapse: collapse; }
+        .admin-table th { text-align: left; padding: 12px 15px; font-size: 0.75rem; color: #94a3b8; text-transform: uppercase; border-bottom: 2px solid #f1f5f9; font-weight: 800; }
+        .admin-table td { padding: 14px 15px; border-bottom: 1px solid #f8fafc; font-size: 0.9rem; color: #475569; }
+        .admin-table tr:hover { background: #fafafa; }
+        .selected-row { background: #fff7f5 !important; }
+        .action-cell { display: flex; gap: 8px; }
+        .btn-approve-guide { background: #dcfce7; color: #166534; border: none; padding: 7px 14px; border-radius: 8px; font-weight: 700; cursor: pointer; font-size: 0.85rem; transition: 0.2s; }
+        .btn-approve-guide:hover { background: #bbf7d0; }
+        .btn-approve-guide.full { width: 100%; padding: 12px; margin-bottom: 8px; }
+        .btn-reject-guide { background: #fef2f2; color: #ef4444; border: none; padding: 7px 14px; border-radius: 8px; font-weight: 700; cursor: pointer; font-size: 0.85rem; transition: 0.2s; }
+        .btn-reject-guide:hover { background: #fee2e2; }
+        .btn-reject-guide.full { width: 100%; padding: 12px; }
+        .guide-detail-panel { width: 260px; background: white; border-radius: 18px; padding: 25px; border: 1px solid #f1f5f9; box-shadow: 0 4px 15px rgba(0,0,0,0.04); text-align: center; height: fit-content; }
+        .detail-avatar { width: 70px; height: 70px; background: linear-gradient(135deg, #ff5a3c, #ff8a75); color: white; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 2rem; font-weight: 800; margin: 0 auto 15px; }
+        .guide-detail-panel h3 { margin: 0 0 5px; color: #1e293b; }
+        .detail-email { color: #64748b; font-size: 0.85rem; margin-bottom: 15px; word-break: break-all; }
+        .detail-bio { font-size: 0.82rem; color: #94a3b8; line-height: 1.4; margin-bottom: 20px; }
+        .detail-actions { margin-top: 20px; }
+        .toast-alert { position: fixed; top: 20px; right: 20px; padding: 14px 20px; border-radius: 12px; font-weight: 700; z-index: 9999; animation: fadeIn 0.3s ease; }
+        .toast-alert.success { background: #dcfce7; color: #166534; border: 1px solid #bbf7d0; }
+        .toast-alert.error { background: #fef2f2; color: #ef4444; border: 1px solid #fecaca; }
+        .admin-loader-container { text-align: center; padding: 80px; color: #94a3b8; }
+        .spinner { width: 36px; height: 36px; border: 4px solid #e2e8f0; border-top-color: #ff5a3c; border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto 15px; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
+        @media (max-width: 800px) { .admin-content-layout { grid-template-columns: 1fr; } .guide-detail-panel { width: 100%; } }
       `}</style>
     </div>
   );
