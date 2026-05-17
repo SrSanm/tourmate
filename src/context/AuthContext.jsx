@@ -46,15 +46,18 @@ export const AuthProvider = ({ children }) => {
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  /**
-   * AUTH STATE & REAL-TIME PROFILE
-   * Este efecto maneja la persistencia de la sesión y los cambios en Firestore.
-   */
+  /* =========================
+     AUTH STATE & REAL-TIME PROFILE
+  ========================= */
   useEffect(() => {
-    let unsubProfile = () => {};
+    let unsubProfile = null;
 
     const unsubAuth = onAuthStateChanged(auth, async (currentUser) => {
-      setLoading(true);
+      // Si se desmonta un listener previo, lo cerramos
+      if (unsubProfile) {
+        unsubProfile();
+        unsubProfile = null;
+      }
 
       if (!currentUser) {
         setUser(null);
@@ -65,26 +68,31 @@ export const AuthProvider = ({ children }) => {
 
       setUser(currentUser);
 
-      // Escuchar cambios en el perfil de Firestore en tiempo real (status, rol, etc.)
+      // Listener en tiempo real para cambios de rol o estado (active/approved)
       const ref = doc(db, "users", currentUser.uid);
+      
       unsubProfile = onSnapshot(
         ref,
         (snap) => {
           if (snap.exists()) {
             setProfile(snap.data());
+          } else {
+            console.warn("El documento de perfil no existe en Firestore.");
+            setProfile(null);
           }
           setLoading(false);
         },
         (err) => {
-          console.error("Error snapshot perfil:", err);
-          setLoading(false);
+          console.error("Error en el snapshot del perfil:", err);
+          setProfile(null);
+          setLoading(false); // Liberar carga incluso si falla la base de datos
         }
       );
     });
 
     return () => {
       unsubAuth();
-      unsubProfile();
+      if (unsubProfile) unsubProfile();
     };
   }, []);
 
@@ -127,12 +135,13 @@ export const AuthProvider = ({ children }) => {
         profile: docSnap.exists() ? docSnap.data() : null
       };
     } catch (error) {
+      console.error("Login error:", error);
       return { success: false, error: error.code };
     }
   };
 
   /* =========================
-     GOOGLE LOGIN (Corregido)
+     GOOGLE LOGIN
   ========================= */
   const loginWithGoogle = async () => {
     try {
@@ -160,7 +169,7 @@ export const AuthProvider = ({ children }) => {
       return { success: true, profile: profileData };
     } catch (error) {
       console.error("Google login error:", error);
-      return { success: false, error: error.code }; // Corregido retorno
+      return { success: false, error: error.code };
     }
   };
 
@@ -168,13 +177,17 @@ export const AuthProvider = ({ children }) => {
      LOGOUT
   ========================= */
   const logout = async () => {
-    await signOut(auth);
-    setUser(null);
-    setProfile(null);
+    try {
+      await signOut(auth);
+      setUser(null);
+      setProfile(null);
+    } catch (error) {
+      console.error("Logout error:", error);
+    }
   };
 
   /* =========================
-     VALUE
+     VALUE OBJECT
   ========================= */
   const value = {
     user,
@@ -194,6 +207,7 @@ export const AuthProvider = ({ children }) => {
     isTourist: profile?.role === "tourist",
   };
 
+  // Renderizar siempre el árbol para evitar congelar el Router de React
   return (
     <AuthContext.Provider value={value}>
       {children}
