@@ -1,5 +1,5 @@
-import React from "react";
-import { BrowserRouter, Routes, Route, Navigate, Outlet } from "react-router-dom";
+import React, { useEffect } from "react";
+import { BrowserRouter, Routes, Route, Navigate, Outlet, useLocation } from "react-router-dom";
 
 // ─── CONTEXTOS ────────────────────────────────────────────────
 import { AuthProvider, useAuth } from "./context/AuthContext";
@@ -39,6 +39,15 @@ import ExploreTours     from "./components/TouristDashboard/ExploreTours";
 import MyBookings       from "./components/TouristDashboard/MyBookings";
 import TouristProfile   from "./components/TouristDashboard/TouristProfile";
 
+// ─── CONTROL DE DESPLAZAMIENTO GLOBAL ─────────────────────────
+function ScrollToTop() {
+  const { pathname } = useLocation();
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, [pathname]);
+  return null;
+}
+
 // ─── LOADING SCREEN ───────────────────────────────────────────
 const LoadingScreen = () => (
   <div className="tm-loading-container">
@@ -49,26 +58,18 @@ const LoadingScreen = () => (
 
 /**
  * RequireAuth — Protege rutas por rol.
- * Corregido para esperar la sincronización exacta del perfil sin expulsar al Home.
  */
 function RequireAuth({ roles }) {
   const { user, profile, loading } = useAuth();
 
-  // 1. Si el contexto está resolviendo la sesión de Firebase Auth, esperamos
   if (loading) return <LoadingScreen />;
-  
-  // 2. Si no hay usuario autenticado en Firebase, directo al Login
   if (!user) return <Navigate to="/login" replace />;
-  
-  // 3. Si hay usuario pero Firestore aún no retorna el perfil, congelamos pantalla para evitar rebotes falsos
   if (!profile || Object.keys(profile).length === 0) return <LoadingScreen />;
 
-  // 4. Manejo estricto para guías pendientes de aprobación de administración
   if (profile.role === "guide" && profile.status !== "approved") {
     return <Navigate to="/waiting-approval" replace />;
   }
 
-  // 5. Verificación de privilegios de rol sobre la ruta solicitada
   if (roles && !roles.includes(profile.role)) {
     return <Navigate to="/" replace />;
   }
@@ -116,7 +117,6 @@ function AppRoutes() {
         <Route path="/checkout/:bookingId" element={<CheckoutPage />} />
         <Route path="/waiting-approval" element={<WaitingApproval />} />
 
-        {/* Evita renderizar vistas públicas si el estado asíncrono ya sabe que existe sesión */}
         <Route path="/login"    element={user ? <DashboardRedirect /> : <LoginPage />} />
         <Route path="/register" element={user ? <DashboardRedirect /> : <RegisterPage />} />
       </Route>
@@ -175,6 +175,7 @@ export default function App() {
       <TourProvider>
         <UIProvider>
           <BrowserRouter>
+            <ScrollToTop />
             <AppRoutes />
           </BrowserRouter>
         </UIProvider>
