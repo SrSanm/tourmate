@@ -48,7 +48,7 @@ export default function Footer() {
           {/* COLUMNA 4: CONTACTO REAL */}
           <div className="footer__contact">
             <h4>Contacto</h4>
-            <p>📍 El Poblado, Medellín</p>
+            <p>📍 Medellín - Colombia</p>
             <p>📧 contacto@tourmate.co</p>
             <p>📞 +57 (300) 123-4567</p>
           </div>
