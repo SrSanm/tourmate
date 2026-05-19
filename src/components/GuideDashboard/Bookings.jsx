@@ -1,339 +1,540 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { db, auth } from '../../firebase/firebaseConfig';
-import {
-  collection,
-  query,
-  where,
-  onSnapshot,
-  doc,
-  updateDoc,
-  serverTimestamp,
-  deleteDoc
-} from 'firebase/firestore';
+import { db } from '../../firebase/firebaseConfig';
 import { useAuth } from '../../context/AuthContext';
+import { useNavigate } from 'react-router-dom';
+import { 
+  collection, 
+  query, 
+  where, 
+  onSnapshot, 
+  doc, 
+  updateDoc, 
+  serverTimestamp 
+} from 'firebase/firestore';
 
-/**
- * Bookings - Gestión de reservas desde el lado del guía.
- * Permite aprobar, confirmar, completar o rechazar reservas.
- */
-const Bookings = () => {
-  const { user } = useAuth();
-  const [allBookings, setAllBookings] = useState([]);
+const MyBookings = () => {
+  const { user, profile } = useAuth();
+  const navigate = useNavigate();
+  
+  // Estados principales de la aplicación
+  const [bookings, setBookings] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState('Nuevas');
+  const [error, setError] = useState(null);
+  const [filter, setFilter] = useState('Nuevas');
+  
+  // Estados para herramientas de filtrado avanzado
   const [searchTerm, setSearchTerm] = useState('');
-  const [selectedBooking, setSelectedBooking] = useState(null);
-  const [sortOrder, setSortOrder] = useState('desc');
+  const [sortBy, setSortBy] = useState('recent'); // 'recent' | 'oldest' | 'price-high' | 'price-low'
+  const [selectedBooking, setSelectedBooking] = useState(null); // Para el modal de detalles
+  
+  // Estado para acciones asíncronas en las tarjetas
+  const [actionLoadingId, setActionLoadingId] = useState(null);
 
+  const isGuide = profile?.role === 'guide';
+
+  // Listener en tiempo real de Firestore con manejo de excepciones mas estricto
   useEffect(() => {
-    const currentUser = user || auth.currentUser;
-    if (!currentUser) return;
+    if (!user) {
+      setError("No se detectó una sesión activa de usuario.");
+      setLoading(false);
+      return;
+    }
 
-    const q = query(
-      collection(db, "bookings"),
-      where("guideId", "==", currentUser.uid)
-    );
+    setLoading(true);
+    setError(null);
+    let q;
+
+    try {
+      if (isGuide) {
+        q = query(
+          collection(db, "bookings"),
+          where("status", "in", ["published", "pending", "confirmed", "paid"])
+        );
+      } else {
+        q = query(
+          collection(db, "bookings"),
+          where("userId", "==", user.uid)
+        );
+      }
+    } catch (err) {
+      console.error("Error al estructurar la query de Firestore:", err);
+      setError("Error interno al configurar la consulta de datos.");
+      setLoading(false);
+      return;
+    }
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      const data = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
-      setAllBookings(data);
-      setLoading(false);
-    }, (error) => {
-      console.error("Error en Snapshot:", error);
+      try {
+        console.log(`--- SINCRONIZACIÓN AUTOMÁTICA ${isGuide ? 'GUÍA' : 'TURISTA'} ---`);
+        console.log("Documentos mapeados desde Firebase:", snapshot.size);
+        
+        const data = snapshot.docs.map(doc => {
+          const rawData = doc.data();
+          return {
+            id: doc.id,
+            ...rawData,
+            // Normalización de tipos para evitar roturas en la interfaz
+            totalPrice: Number(rawData.totalPrice) || 0,
+            date: rawData.date || "Fecha no estipulada",
+            tourTitle: rawData.tourTitle || "Tour por Medellín"
+          };
+        });
+
+        if (isGuide) {
+          // Filtra para la bolsa pública o las asignadas directamente a este guía
+          const guideData = data.filter(b => b.status === 'published' || b.guideId === user.uid);
+          setBookings(guideData);
+        } else {
+          setBookings(data);
+        }
+        setError(null);
+      } catch (mappingError) {
+        console.error("Error procesando los documentos de la colección:", mappingError);
+        setError("Ocurrió un error al procesar la lista de reservas.");
+      } finally {
+        setLoading(false);
+      }
+    }, (firebaseError) => {
+      console.error("Error de conexión con Firebase Firestore:", firebaseError);
+      setError("Fallo de conexión de red con el servidor de base de datos.");
       setLoading(false);
     });
 
     return () => unsubscribe();
-  }, [user]);
+  }, [user, isGuide]);
 
-  const filteredAndSorted = useMemo(() => {
-    let result = allBookings.filter(item => {
-      const s = item.status?.toLowerCase();
-      const matchesTab =
-        activeTab === 'Nuevas'    ? s === 'pending' :
-        activeTab === 'En Curso'  ? (s === 'confirmed' || s === 'paid') :
-        activeTab === 'Historial' ? (s === 'completed' || s === 'cancelled') : false;
-
-      const matchesSearch =
-        item.tourTitle?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        item.id.toLowerCase().includes(searchTerm.toLowerCase());
-
-      return matchesTab && matchesSearch;
+  // Lógica combinada de Filtrado por pestañas, Búsqueda por texto y Ordenamiento
+  const processedBookings = useMemo(() => {
+    // 1. Filtrado por estado según pestaña activa
+    let result = bookings.filter(b => {
+      const status = b.status?.toLowerCase() || 'pending';
+      if (isGuide) {
+        if (filter === 'Nuevas') return status === 'published' || status === 'pending' || status === 'pendiente';
+        if (filter === 'En Curso') return status === 'confirmed' || status === 'approved';
+        if (filter === 'Historial') return status === 'paid';
+      } else {
+        if (filter === 'Nuevas') return status === 'published' || status === 'pending' || status === 'pendiente';
+        if (filter === 'En Curso') return status === 'confirmed' || status === 'approved';
+        if (filter === 'Historial') return status === 'paid';
+      }
+      return false;
     });
 
-    return result.sort((a, b) => {
-      const ta = a.createdAt?.seconds || 0;
-      const tb = b.createdAt?.seconds || 0;
-      return sortOrder === 'desc' ? tb - ta : ta - tb;
-    });
-  }, [allBookings, activeTab, searchTerm, sortOrder]);
+    // 2. Filtro por término de búsqueda (Input text)
+    if (searchTerm.trim() !== '') {
+      const term = searchTerm.toLowerCase();
+      result = result.filter(b => 
+        b.tourTitle.toLowerCase().includes(term) ||
+        b.id.toLowerCase().includes(term) ||
+        (b.touristName && b.touristName.toLowerCase().includes(term)) ||
+        (b.guideName && b.guideName.toLowerCase().includes(term))
+      );
+    }
 
-  const handleUpdateStatus = async (id, newStatus) => {
+    // 3. Ordenamiento de la información
+    result.sort((a, b) => {
+      if (sortBy === 'recent') {
+        return new Date(b.date) - new Date(a.date);
+      }
+      if (sortBy === 'oldest') {
+        return new Date(a.date) - new Date(b.date);
+      }
+      if (sortBy === 'price-high') {
+        return b.totalPrice - a.totalPrice;
+      }
+      if (sortBy === 'price-low') {
+        return a.totalPrice - b.totalPrice;
+      }
+      return 0;
+    });
+
+    return result;
+  }, [bookings, filter, searchTerm, sortBy, isGuide]);
+
+  // Cálculo de los contenedores estadísticos superiores
+  const panelMetrics = useMemo(() => {
+    const bolsaCount = bookings.filter(b => b.status === 'published').length;
+    const activosCount = bookings.filter(b => b.status === 'confirmed' || b.status === 'approved').length;
+    const totalCaja = bookings
+      .filter(b => b.status === 'paid')
+      .reduce((acc, curr) => acc + curr.totalPrice, 0);
+
+    return {
+      bolsa: bolsaCount,
+      activos: activosCount,
+      ingresos: totalCaja.toLocaleString('es-CO')
+    };
+  }, [bookings]);
+
+  // Redirección segura al simulador de pasarela Wompi
+  const handleNavigateToCheckout = (id, total) => {
+    if (!id || total <= 0) {
+      alert("La reserva no cuenta con los parámetros de facturación válidos.");
+      return;
+    }
+    navigate(`/checkout/${id}?amount=${total}`);
+  };
+
+  // Confirmación asíncrona del servicio para el rol Guía
+  const handleAcceptService = async (id) => {
+    if (!id) return;
+    if (!window.confirm("¿Estás seguro de que deseas aceptar y tomar esta asignación?")) return;
+
+    setActionLoadingId(id);
     try {
-      await updateDoc(doc(db, "bookings", id), {
-        status: newStatus,
-        lastModification: serverTimestamp()
+      const bookingRef = doc(db, "bookings", id);
+      await updateDoc(bookingRef, {
+        status: 'confirmed',
+        guideId: user.uid,
+        guideName: user.displayName || profile?.name || "Guía Profesional asignado",
+        acceptedAt: serverTimestamp()
       });
-      setSelectedBooking(null);
-    } catch (error) {
-      alert("Error al actualizar el estado del servicio.");
-    }
-  };
-
-  const handleDelete = async (id) => {
-    if (!window.confirm("¿Eliminar este registro del historial?")) return;
-    try {
-      await deleteDoc(doc(db, "bookings", id));
-      setSelectedBooking(null);
+      alert("Asignación confirmada. El servicio fue movido a la pestaña de 'En Curso'.");
+      setFilter('En Curso');
     } catch (err) {
-      alert("No se pudo eliminar.");
+      console.error("Fallo crítico al actualizar documento de reserva:", err);
+      alert("Hubo un error al intentar registrar el servicio. Inténtalo de nuevo.");
+    } finally {
+      setActionLoadingId(null);
     }
   };
 
-  const stats = {
-    pending:     allBookings.filter(b => b.status === 'pending').length,
-    active:      allBookings.filter(b => b.status === 'confirmed' || b.status === 'paid').length,
-    totalIncome: allBookings
-      .filter(b => b.status === 'paid' || b.status === 'completed')
-      .reduce((acc, b) => acc + (Number(b.totalPrice) || 0), 0)
-  };
+  if (loading) {
+    return (
+      <div className="bookings-loading-wrapper">
+        <div className="spinner-element"></div>
+        <p>Sincronizando con los servidores de TourMate...</p>
+      </div>
+    );
+  }
 
-  const statusLabel = (status) => {
-    const map = { pending: 'Pendiente', confirmed: 'Confirmado', paid: 'Pagado', completed: 'Completado', cancelled: 'Cancelado' };
-    return map[status] || status;
-  };
+  if (error) {
+    return (
+      <div className="bookings-error-wrapper">
+        <div className="error-icon-box">⚠️</div>
+        <h3>Error de Sincronización</h3>
+        <p>{error}</p>
+        <button onClick={() => window.location.reload()} className="retry-view-btn">
+          Reintentar Carga
+        </button>
+      </div>
+    );
+  }
 
-  if (loading) return (
-    <div className="tm-loading-state">
-      <div className="tm-spinner"></div>
-      <p>Sincronizando tus rutas en Medellín...</p>
-    </div>
-  );
+  const tabsArray = ['Nuevas', 'En Curso', 'Historial'];
 
   return (
-    <div className="tm-bookings-page">
-      {/* 1. MÉTRICAS */}
-      <section className="tm-metrics-grid">
-        <div className="tm-metric-item orange">
-          <div className="metric-icon">📂</div>
-          <div className="metric-text">
-            <span className="label">Por Aprobar</span>
-            <span className="value">{stats.pending}</span>
+    <div className="bookings-dashboard-container">
+      
+      {/* SECCIÓN DE MÉTRICAS GENERALES */}
+      <section className="metrics-layout-grid" aria-label="Estadísticas de reservas">
+        <div className="metric-item-card variant-blue">
+          <div className="metric-visual-icon">🌍</div>
+          <div className="metric-content-data">
+            <span className="metric-title-lbl">BOLSA DISPONIBLE</span>
+            <h2 className="metric-value-display">{panelMetrics.bolsa} tours</h2>
           </div>
         </div>
-        <div className="tm-metric-item green">
-          <div className="metric-icon">🚀</div>
-          <div className="metric-text">
-            <span className="label">Servicios Activos</span>
-            <span className="value">{stats.active}</span>
+
+        <div className="metric-item-card variant-orange">
+          <div className="metric-visual-icon">💼</div>
+          <div className="metric-content-data">
+            <span className="metric-title-lbl">SERVICIOS ACTIVOS</span>
+            <h2 className="metric-value-display">{panelMetrics.activos} en ruta</h2>
           </div>
         </div>
-        <div className="tm-metric-item blue">
-          <div className="metric-icon">📈</div>
-          <div className="metric-text">
-            <span className="label">Ingresos Generados</span>
-            <span className="value">${stats.totalIncome.toLocaleString('es-CO')}</span>
+
+        <div className="metric-item-card variant-green">
+          <div className="metric-visual-icon">💰</div>
+          <div className="metric-content-data">
+            <span className="metric-title-lbl">FACTURACIÓN TOTAL</span>
+            <h2 className="metric-value-display">${panelMetrics.ingresos} COP</h2>
           </div>
         </div>
       </section>
 
-      {/* 2. BARRA DE CONTROL */}
-      <div className="tm-control-bar">
-        <div className="tm-tabs-navigation">
-          {['Nuevas', 'En Curso', 'Historial'].map(tab => (
+      {/* FILTROS, CONTROLES DE ORDENAMIENTO Y BÚSQUEDA */}
+      <section className="controls-bar-layout">
+        <div className="tabs-navigation-list">
+          {tabsArray.map(tab => (
             <button
               key={tab}
-              className={`tab-btn ${activeTab === tab ? 'active' : ''}`}
-              onClick={() => setActiveTab(tab)}
+              className={`navigation-tab-trigger ${filter === tab ? 'state-active' : ''}`}
+              onClick={() => setFilter(tab)}
             >
               {tab}
-              {tab === 'Nuevas' && stats.pending > 0 && (
-                <span className="tab-badge">{stats.pending}</span>
-              )}
             </button>
           ))}
         </div>
 
-        <div className="tm-search-wrapper">
+        <div className="search-and-sort-group">
           <input
             type="text"
+            className="search-input-control"
             placeholder="Buscar por tour o ID..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
           />
+
+          <select 
+            className="sort-dropdown-control"
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value)}
+          >
+            <option value="recent">Más recientes primero</option>
+            <option value="oldest">Más antiguos primero</option>
+            <option value="price-high">Precio: Mayor a Menor</option>
+            <option value="price-low">Precio: Menor a Mayor</option>
+          </select>
         </div>
+      </section>
 
-        <select
-          value={sortOrder}
-          onChange={(e) => setSortOrder(e.target.value)}
-          className="sort-select"
-        >
-          <option value="desc">Más recientes primero</option>
-          <option value="asc">Más antiguas primero</option>
-        </select>
-      </div>
-
-      {/* 3. LISTADO */}
-      <main className="tm-bookings-main">
-        {filteredAndSorted.length === 0 ? (
-          <div className="empty-tab-state">
-            <p>No hay reservas en <strong>{activeTab}</strong>.</p>
-            {activeTab === 'Nuevas' && <span>Cuando un turista solicite uno de tus tours, aparecerá aquí.</span>}
+      {/* CONTENEDOR PRINCIPAL DE RESULTADOS */}
+      <main className="bookings-results-view">
+        {processedBookings.length === 0 ? (
+          <div className="empty-results-fallback">
+            <div className="fallback-illustration">📂</div>
+            <h4>Sin coincidencias disponibles</h4>
+            <p>No se encontraron registros activos en la sección de <strong>{filter}</strong> con los filtros actuales.</p>
+            {searchTerm && <button onClick={() => setSearchTerm('')} className="clear-filters-link">Limpiar caja de búsqueda</button>}
           </div>
         ) : (
-          <div className="tm-grid">
-            {filteredAndSorted.map(item => (
-              <div key={item.id} className={`tm-booking-card st-${item.status}`}>
-                <header className="card-top">
-                  <span className={`status-pill ${item.status}`}>{statusLabel(item.status)}</span>
-                  <span className="id-label">#{item.id.slice(-6).toUpperCase()}</span>
-                </header>
+          <div className="bookings-cards-grid-system">
+            {processedBookings.map(item => (
+              <article key={item.id} className={`booking-render-card theme-${item.status}`}>
+                
+                <div className="card-top-identity">
+                  <span className="status-badge-indicator">
+                    {item.status === 'published' && 'Bolsa Abierta'}
+                    {item.status === 'pending' && 'Por Confirmar'}
+                    {item.status === 'confirmed' && 'Por Pagar'}
+                    {item.status === 'paid' && 'Completado'}
+                  </span>
+                  <span className="booking-id-tag">ID: {item.id.substring(0, 8)}</span>
+                </div>
 
-                <div className="card-body">
-                  <h3 className="tour-title">{item.tourTitle || "Experiencia TourMate"}</h3>
-                  <div className="info-group">
-                    <div className="info-item">
-                      <span className="i-icon">👥</span>
-                      <span>{item.numPersons || item.people || 1} personas</span>
+                <div className="card-body-core">
+                  <h3 className="tour-title-heading">{item.tourTitle}</h3>
+                  
+                  <div className="tour-specs-list">
+                    <div className="spec-row-item">
+                      <span className="spec-icon">📅</span>
+                      <span className="spec-text">Fecha programada: {item.date}</span>
                     </div>
-                    {item.date && (
-                      <div className="info-item">
-                        <span className="i-icon">📅</span>
-                        <span>{item.date}</span>
+                    <div className="spec-row-item">
+                      <span className="spec-icon">👥</span>
+                      <span className="spec-text">Asistentes: {item.numPersons || item.guests || 1} personas</span>
+                    </div>
+                    {isGuide ? (
+                      <div className="spec-row-item">
+                        <span className="spec-icon">👤</span>
+                        <span className="spec-text">Cliente: {item.touristName || "Usuario Registrado"}</span>
                       </div>
+                    ) : (
+                      item.guideName && (
+                        <div className="spec-row-item">
+                          <span className="spec-icon">🤠</span>
+                          <span className="spec-text">Guía local: {item.guideName}</span>
+                        </div>
+                      )
                     )}
-                    <div className="info-item">
-                      <span className="i-icon">🆔</span>
-                      <span>Turista: {(item.userId || item.touristId || '—').slice(0, 12)}...</span>
-                    </div>
                   </div>
                 </div>
 
-                <footer className="card-footer">
-                  <div className="price-display">
-                    <span className="p-label">Total</span>
-                    <span className="p-value">${(Number(item.totalPrice) || 0).toLocaleString('es-CO')} COP</span>
+                <div className="card-action-footer">
+                  <div className="price-stack-container">
+                    <span className="price-stack-lbl">Monto Total</span>
+                    <span className="price-stack-val">${item.totalPrice.toLocaleString('es-CO')} COP</span>
                   </div>
-                  <button className="btn-details" onClick={() => setSelectedBooking(item)}>
-                    Ver Detalles
-                  </button>
-                </footer>
-              </div>
+
+                  <div className="footer-buttons-group">
+                    <button 
+                      className="action-btn-secondary"
+                      onClick={() => setSelectedBooking(item)}
+                    >
+                      Detalles
+                    </button>
+
+                    {/* Acciones contextuales basadas en rol y estado */}
+                    {!isGuide && (item.status === 'confirmed' || item.status === 'approved') && (
+                      <button 
+                        className="action-btn-primary variant-pay"
+                        onClick={() => handleNavigateToCheckout(item.id, item.totalPrice)}
+                      >
+                        Pagar Seguro
+                      </button>
+                    )}
+
+                    {isGuide && (item.status === 'published' || item.status === 'pending') && (
+                      <button 
+                        className="action-btn-primary variant-accept"
+                        disabled={actionLoadingId === item.id}
+                        onClick={() => handleAcceptService(item.id)}
+                      >
+                        {actionLoadingId === item.id ? 'Procesando...' : 'Aceptar Tour'}
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+              </article>
             ))}
           </div>
         )}
       </main>
 
-      {/* 4. MODAL DE DETALLES */}
+      {/* MODAL DETALLADO DE LA RESERVA (PANTALLA EMERGENTE) */}
       {selectedBooking && (
-        <div className="tm-modal-overlay" onClick={(e) => e.target === e.currentTarget && setSelectedBooking(null)}>
-          <div className="tm-modal-content">
-            <button className="close-modal" onClick={() => setSelectedBooking(null)}>×</button>
-            <h2>Detalle de la Reserva</h2>
-            <hr />
-            <div className="modal-data">
-              <p><strong>Tour:</strong> {selectedBooking.tourTitle || '—'}</p>
-              <p><strong>ID:</strong> <code>{selectedBooking.id}</code></p>
-              <p><strong>Estado:</strong> <span className={`status-pill ${selectedBooking.status}`}>{statusLabel(selectedBooking.status)}</span></p>
-              <p><strong>Personas:</strong> {selectedBooking.numPersons || selectedBooking.people || 1}</p>
-              <p><strong>Fecha del tour:</strong> {selectedBooking.date || "Pendiente por confirmar"}</p>
-              <p><strong>Total:</strong> ${Number(selectedBooking.totalPrice || 0).toLocaleString('es-CO')} COP</p>
-            </div>
+        <div className="modal-overlay-shroud" onClick={() => setSelectedBooking(null)}>
+          <div className="modal-content-surface" onClick={(e) => e.stopPropagation()}>
+            <header className="modal-header-section">
+              <h3>Ficha Técnica de Reserva</h3>
+              <button className="close-modal-x" onClick={() => setSelectedBooking(null)}>&times;</button>
+            </header>
+            
+            <main className="modal-body-content">
+              <div className="modal-data-grid">
+                <div className="grid-cell-full">
+                  <label>Título del Recorrido</label>
+                  <p>{selectedBooking.tourTitle}</p>
+                </div>
+                <div>
+                  <label>Identificador Único</label>
+                  <p>{selectedBooking.id}</p>
+                </div>
+                <div>
+                  <label>Estado del Registro</label>
+                  <p style={{textTransform: 'uppercase', fontWeight: 'bold'}}>{selectedBooking.status}</p>
+                </div>
+                <div>
+                  <label>Fecha de Operación</label>
+                  <p>{selectedBooking.date}</p>
+                </div>
+                <div>
+                  <label>Cupos Reservados</label>
+                  <p>{selectedBooking.numPersons || selectedBooking.guests || 1} Personas</p>
+                </div>
+                {selectedBooking.touristEmail && (
+                  <div className="grid-cell-full">
+                    <label>Correo Electrónico del Turista</label>
+                    <p>{selectedBooking.touristEmail}</p>
+                  </div>
+                )}
+                {selectedBooking.paymentMethod && (
+                  <div>
+                    <label>Medio de Pago Registrado</label>
+                    <p>{selectedBooking.paymentMethod}</p>
+                  </div>
+                )}
+                {selectedBooking.transactionId && (
+                  <div>
+                    <label>Referencia de Transacción</label>
+                    <p>{selectedBooking.transactionId}</p>
+                  </div>
+                )}
+              </div>
+            </main>
 
-            <div className="modal-actions">
-              {selectedBooking.status === 'pending' && (
-                <>
-                  <button className="btn-approve-big" onClick={() => handleUpdateStatus(selectedBooking.id, 'confirmed')}>
-                    ✓ Aceptar y Confirmar Servicio
-                  </button>
-                  <button className="btn-cancel-big" onClick={() => handleUpdateStatus(selectedBooking.id, 'cancelled')}>
-                    ✕ Rechazar Solicitud
-                  </button>
-                </>
-              )}
-              {selectedBooking.status === 'confirmed' && (
-                <p className="status-notice">⏳ Esperando que el turista realice el pago.</p>
-              )}
-              {selectedBooking.status === 'paid' && (
-                <button className="btn-complete-big" onClick={() => handleUpdateStatus(selectedBooking.id, 'completed')}>
-                  🏁 Finalizar Servicio con Éxito
-                </button>
-              )}
-              {(selectedBooking.status === 'completed' || selectedBooking.status === 'cancelled') && (
-                <button className="btn-delete-big" onClick={() => handleDelete(selectedBooking.id)}>
-                  🗑 Eliminar del Registro
-                </button>
-              )}
-            </div>
+            <footer className="modal-footer-section">
+              <div className="modal-total-indicator">
+                <span>Total Liquidado:</span>
+                <strong>${selectedBooking.totalPrice.toLocaleString('es-CO')} COP</strong>
+              </div>
+              <button className="action-btn-secondary" onClick={() => setSelectedBooking(null)}>Cerrar Ficha</button>
+            </footer>
           </div>
         </div>
       )}
 
+      {/* ESTILOS ENCAPSULADOS ARQUITECTURA DE SOFTWARE */}
       <style>{`
-        .tm-bookings-page { padding: 30px; background: #f8fafc; min-height: 100vh; }
-        .tm-metrics-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 20px; margin-bottom: 40px; }
-        .tm-metric-item { background: white; padding: 25px; border-radius: 20px; display: flex; align-items: center; gap: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.04); border-bottom: 4px solid transparent; transition: 0.3s; }
-        .tm-metric-item:hover { transform: translateY(-4px); }
-        .tm-metric-item.orange { border-color: #ff5a3c; }
-        .tm-metric-item.green { border-color: #10b981; }
-        .tm-metric-item.blue { border-color: #3b82f6; }
-        .metric-icon { font-size: 1.8rem; background: #f1f5f9; width: 56px; height: 56px; display: flex; align-items: center; justify-content: center; border-radius: 14px; }
-        .metric-text .label { display: block; font-size: 0.75rem; color: #94a3b8; text-transform: uppercase; font-weight: 800; letter-spacing: 0.5px; }
-        .metric-text .value { font-size: 1.8rem; font-weight: 800; color: #1e293b; }
-        .tm-control-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px; flex-wrap: wrap; gap: 15px; }
-        .tm-tabs-navigation { display: flex; background: #e2e8f0; padding: 5px; border-radius: 14px; gap: 4px; }
-        .tab-btn { border: none; padding: 10px 22px; border-radius: 10px; cursor: pointer; font-weight: 700; color: #64748b; background: transparent; transition: 0.2s; position: relative; }
-        .tab-btn.active { background: white; color: #ff5a3c; box-shadow: 0 4px 10px rgba(0,0,0,0.08); }
-        .tab-badge { position: absolute; top: -5px; right: -5px; background: #ff5a3c; color: white; font-size: 0.65rem; padding: 2px 6px; border-radius: 10px; border: 2px solid #f8fafc; }
-        .tm-search-wrapper input { padding: 11px 18px; border-radius: 12px; border: 1px solid #e2e8f0; width: 260px; font-size: 0.9rem; outline: none; }
-        .tm-search-wrapper input:focus { border-color: #ff5a3c; box-shadow: 0 0 0 3px rgba(255,90,60,0.1); }
-        .sort-select { padding: 11px 15px; border-radius: 12px; border: 1px solid #e2e8f0; font-size: 0.85rem; font-weight: 600; color: #475569; cursor: pointer; outline: none; }
-        .empty-tab-state { text-align: center; padding: 80px 20px; color: #94a3b8; }
-        .empty-tab-state p { font-size: 1.1rem; margin-bottom: 8px; }
-        .tm-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 22px; }
-        .tm-booking-card { background: white; border-radius: 22px; padding: 25px; border: 1px solid #f1f5f9; box-shadow: 0 2px 4px rgba(0,0,0,0.02); transition: 0.3s; display: flex; flex-direction: column; }
-        .tm-booking-card:hover { transform: translateY(-6px); box-shadow: 0 15px 25px rgba(0,0,0,0.06); }
-        .card-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 18px; }
-        .status-pill { font-size: 0.7rem; font-weight: 800; text-transform: uppercase; padding: 5px 12px; border-radius: 20px; }
-        .status-pill.pending { background: #fff7ed; color: #c2410c; }
-        .status-pill.confirmed { background: #eff6ff; color: #1d4ed8; }
-        .status-pill.paid { background: #f0fdf4; color: #15803d; }
-        .status-pill.completed { background: #f1f5f9; color: #475569; }
-        .status-pill.cancelled { background: #fef2f2; color: #ef4444; }
-        .id-label { font-size: 0.75rem; color: #94a3b8; font-family: monospace; }
-        .tour-title { font-size: 1.2rem; font-weight: 800; color: #1e293b; margin-bottom: 14px; }
-        .info-group { display: flex; flex-direction: column; gap: 8px; margin-bottom: 20px; }
-        .info-item { display: flex; align-items: center; gap: 10px; color: #64748b; font-size: 0.88rem; }
-        .card-footer { margin-top: auto; padding-top: 18px; border-top: 1px solid #f1f5f9; display: flex; justify-content: space-between; align-items: center; }
-        .p-label { display: block; font-size: 0.7rem; color: #94a3b8; font-weight: 700; text-transform: uppercase; }
-        .p-value { font-size: 1.05rem; font-weight: 800; color: #10b981; }
-        .btn-details { background: #f1f5f9; border: none; padding: 9px 16px; border-radius: 10px; font-weight: 700; color: #475569; cursor: pointer; transition: 0.2s; font-size: 0.85rem; }
-        .btn-details:hover { background: #e2e8f0; }
-        .tm-modal-overlay { position: fixed; inset: 0; background: rgba(15,23,42,0.6); backdrop-filter: blur(4px); display: flex; align-items: center; justify-content: center; z-index: 1000; padding: 20px; }
-        .tm-modal-content { background: white; width: 100%; max-width: 480px; border-radius: 28px; padding: 40px; position: relative; animation: modalPop 0.3s cubic-bezier(0.34,1.56,0.64,1); }
-        .close-modal { position: absolute; top: 20px; right: 20px; border: none; background: #f1f5f9; width: 36px; height: 36px; border-radius: 50%; font-size: 1.4rem; cursor: pointer; display: flex; align-items: center; justify-content: center; }
-        .modal-data p { margin: 14px 0; color: #475569; }
-        .modal-data code { background: #f1f5f9; padding: 2px 6px; border-radius: 6px; font-size: 0.85rem; }
-        .modal-actions { margin-top: 25px; display: flex; flex-direction: column; gap: 10px; }
-        .btn-approve-big { background: #3b82f6; color: white; border: none; padding: 15px; border-radius: 14px; font-weight: 800; cursor: pointer; transition: 0.2s; }
-        .btn-approve-big:hover { background: #2563eb; }
-        .btn-complete-big { background: #10b981; color: white; border: none; padding: 15px; border-radius: 14px; font-weight: 800; cursor: pointer; transition: 0.2s; }
-        .btn-complete-big:hover { background: #059669; }
-        .btn-cancel-big { background: #fef2f2; color: #ef4444; border: 1px solid #fecaca; padding: 15px; border-radius: 14px; font-weight: 800; cursor: pointer; }
-        .btn-delete-big { background: #f8fafc; color: #64748b; border: 1px solid #e2e8f0; padding: 15px; border-radius: 14px; font-weight: 700; cursor: pointer; }
-        .status-notice { text-align: center; color: #3b82f6; font-weight: 700; background: #eff6ff; padding: 15px; border-radius: 12px; margin: 0; }
-        .tm-loading-state { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 60vh; color: #94a3b8; }
-        .tm-spinner { width: 40px; height: 40px; border: 4px solid #e2e8f0; border-top-color: #ff5a3c; border-radius: 50%; animation: spin 1s linear infinite; margin-bottom: 15px; }
+        .bookings-dashboard-container { padding: 30px; background-color: #f8fafc; min-height: 100vh; font-family: system-ui, -apple-system, sans-serif; }
+        
+        /* Layout de Metricas */
+        .metrics-layout-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 20px; margin-bottom: 35px; }
+        .metric-item-card { background: #fff; padding: 24px; border-radius: 16px; display: flex; align-items: center; gap: 20px; border: 1px solid #e2e8f0; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+        .metric-visual-icon { font-size: 2.2rem; padding: 12px; border-radius: 14px; }
+        .variant-blue .metric-visual-icon { background: #eff6ff; }
+        .variant-orange .metric-visual-icon { background: #fff7ed; }
+        .variant-green .metric-visual-icon { background: #f0fdf4; }
+        .metric-title-lbl { font-size: 0.75rem; color: #64748b; font-weight: 700; letter-spacing: 0.05em; display: block; margin-bottom: 4px; }
+        .metric-value-display { font-size: 1.6rem; margin: 0; color: #0f172a; font-weight: 800; }
+
+        /* Controles */
+        .controls-bar-layout { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 20px; margin-bottom: 30px; border-bottom: 1px solid #e2e8f0; padding-bottom: 20px; }
+        .tabs-navigation-list { display: flex; background: #e2e8f0; padding: 4px; border-radius: 12px; gap: 4px; }
+        .navigation-tab-trigger { border: none; padding: 10px 24px; border-radius: 8px; font-weight: 700; background: transparent; color: #475569; cursor: pointer; transition: all 0.2s; font-size: 0.9rem; }
+        .navigation-tab-trigger.state-active { background: #fff; color: #ff5a3c; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); }
+        .search-and-sort-group { display: flex; gap: 12px; flex-wrap: wrap; }
+        .search-input-control { padding: 10px 16px; border: 1px solid #cbd5e1; border-radius: 10px; font-size: 0.9rem; width: 260px; outline: none; }
+        .search-input-control:focus { border-color: #ff5a3c; }
+        .sort-dropdown-control { padding: 10px 12px; border: 1px solid #cbd5e1; border-radius: 10px; background: #fff; font-size: 0.9rem; color: #334155; outline: none; cursor: pointer; }
+
+        /* Grid del Sistema */
+        .bookings-cards-grid-system { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 24px; }
+        .booking-render-card { background: #fff; border: 1px solid #e2e8f0; border-radius: 20px; padding: 24px; display: flex; flex-direction: column; justify-content: space-between; min-height: 250px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.02); transition: all 0.2s; }
+        .booking-render-card:hover { transform: translateY(-3px); box-shadow: 0 10px 15px -3px rgba(0,0,0,0.05); }
+        
+        .card-top-identity { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+        .status-badge-indicator { font-size: 0.7rem; font-weight: 800; text-transform: uppercase; padding: 4px 10px; border-radius: 50px; }
+        .theme-published { border-top: 4px solid #10b981; }
+        .theme-published .status-badge-indicator { background: #d1fae5; color: #065f46; }
+        .theme-pending { border-top: 4px solid #f59e0b; }
+        .theme-pending .status-badge-indicator { background: #fef3c7; color: #92400e; }
+        .theme-confirmed { border-top: 4px solid #3b82f6; }
+        .theme-confirmed .status-badge-indicator { background: #dbeafe; color: #1e40af; }
+        .theme-paid { border-top: 4px solid #6366f1; }
+        .theme-paid .status-badge-indicator { background: #e0e7ff; color: #3730a3; }
+        .booking-id-tag { font-size: 0.75rem; color: #94a3b8; font-weight: 600; }
+
+        .tour-title-heading { font-size: 1.2rem; margin: 0 0 12px 0; color: #1e293b; font-weight: 700; }
+        .tour-specs-list { display: flex; flex-direction: column; gap: 6px; }
+        .spec-row-item { display: flex; align-items: center; gap: 8px; font-size: 0.88rem; color: #64748b; }
+        
+        .card-action-footer { border-top: 1px solid #f1f5f9; margin-top: 20px; padding-top: 16px; display: flex; justify-content: space-between; align-items: center; }
+        .price-stack-lbl { font-size: 0.7rem; color: #94a3b8; text-transform: uppercase; display: block; font-weight: 600; }
+        .price-stack-val { font-size: 1.2rem; color: #0f172a; font-weight: 800; }
+        .footer-buttons-group { display: flex; gap: 8px; }
+        
+        .action-btn-secondary { background: #f1f5f9; border: none; padding: 10px 14px; border-radius: 10px; font-weight: 700; color: #475569; cursor: pointer; font-size: 0.85rem; transition: background 0.2s; }
+        .action-btn-secondary:hover { background: #e2e8f0; }
+        .action-btn-primary { border: none; padding: 10px 16px; border-radius: 10px; font-weight: 700; color: #fff; cursor: pointer; font-size: 0.85rem; transition: opacity 0.2s; }
+        .action-btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+        .variant-pay { background: #10b981; }
+        .variant-accept { background: #3b82f6; }
+
+        /* Fallbacks */
+        .empty-results-fallback { text-align: center; padding: 60px; background: #fff; border-radius: 16px; border: 2px dashed #cbd5e1; grid-column: 1 / -1; margin-top: 10px; }
+        .fallback-illustration { font-size: 2.5rem; margin-bottom: 10px; }
+        .empty-results-fallback h4 { margin: 0 0 6px 0; color: #1e293b; font-size: 1.15rem; }
+        .empty-results-fallback p { margin: 0; color: #94a3b8; font-size: 0.95rem; }
+        .clear-filters-link { background: none; border: none; color: #ff5a3c; font-weight: 700; text-decoration: underline; cursor: pointer; margin-top: 12px; font-size: 0.9rem; }
+
+        /* Estructura del Modal */
+        .modal-overlay-shroud { position: fixed; top:0; left:0; width:100vw; height:100vh; background: rgba(15, 23, 42, 0.4); backdrop-filter: blur(4px); display: flex; justify-content: center; align-items: center; z-index: 1000; }
+        .modal-content-surface { background: #fff; width: 90%; maxWidth: 550px; border-radius: 24px; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1); overflow: hidden; display: flex; flex-direction: column; animation: modalSlide 0.2s ease-out; }
+        .modal-header-section { padding: 20px 24px; border-bottom: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center; }
+        .modal-header-section h3 { margin:0; color: #0f172a; font-size: 1.25rem; }
+        .close-modal-x { background: none; border:none; font-size: 1.6rem; cursor: pointer; color: #94a3b8; }
+        .modal-body-content { padding: 24px; max-height: 70vh; overflow-y: auto; }
+        .modal-data-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+        .grid-cell-full { grid-column: 1 / -1; }
+        .modal-data-grid label { font-size: 0.72rem; color: #94a3b8; font-weight: 700; text-transform: uppercase; display: block; margin-bottom: 4px; }
+        .modal-data-grid p { margin: 0; color: #1e293b; font-size: 0.95rem; font-weight: 500; background: #f8fafc; padding: 10px 14px; border-radius: 10px; border: 1px solid #f1f5f9; }
+        .modal-footer-section { padding: 20px 24px; border-top: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center; background: #f8fafc; }
+        .modal-total-indicator span { font-size: 0.8rem; color: #64748b; display: block; }
+        .modal-total-indicator strong { font-size: 1.25rem; color: #ff5a3c; font-weight: 800; }
+
+        /* Loaders */
+        .bookings-loading-wrapper { display: flex; flex-direction: column; justify-content: center; align-items: center; min-height: 100vh; background: #f8fafc; gap: 15px; color: #64748b; }
+        .spinner-element { width: 40px; height: 40px; border: 4px solid #e2e8f0; border-top-color: #ff5a3c; border-radius: 50%; animation: spin 0.8s linear infinite; }
+        
         @keyframes spin { to { transform: rotate(360deg); } }
-        @keyframes modalPop { from { opacity: 0; transform: scale(0.9); } to { opacity: 1; transform: scale(1); } }
-        @media (max-width: 768px) {
-          .tm-bookings-page { padding: 15px; }
-          .tm-control-bar { flex-direction: column; align-items: stretch; }
-          .tm-search-wrapper input { width: 100%; }
-        }
+        @keyframes modalSlide { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
       `}</style>
+
     </div>
   );
 };
 
-export default Bookings;
+export default MyBookings;

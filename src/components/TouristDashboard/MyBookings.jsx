@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { db, auth } from '../../firebase/firebaseConfig';
+import { db } from '../../firebase/firebaseConfig';
+import { useAuth } from '../../context/AuthContext';
+import { useNavigate } from 'react-router-dom';
 import { 
   collection, 
   query, 
@@ -11,30 +13,46 @@ import {
 } from 'firebase/firestore';
 
 const MyBookings = () => {
+  const { user, profile } = useAuth();
+  const navigate = useNavigate();
   const [bookings, setBookings] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('Todos');
 
+  const isGuide = profile?.role === 'guide';
+
   useEffect(() => {
-    const user = auth.currentUser;
     if (!user) return;
 
-    // CONSULTA: Buscamos por el ID del turista
-    const q = query(
-      collection(db, "bookings"),
-      where("userId", "==", user.uid)
-    );
+    let q;
+    if (isGuide) {
+      q = query(
+        collection(db, "bookings"),
+        where("status", "in", ["published", "pending", "confirmed", "paid"])
+      );
+    } else {
+      q = query(
+        collection(db, "bookings"),
+        where("userId", "==", user.uid)
+      );
+    }
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      console.log("--- SINCRONIZACIÓN TURISTA ---");
+      console.log(`--- SINCRONIZACIÓN ${isGuide ? 'GUÍA' : 'TURISTA'} ---`);
       console.log("Documentos en Firebase:", snapshot.size);
       
       const data = snapshot.docs.map(doc => ({
         id: doc.id,
         ...doc.data()
       }));
+
+      if (isGuide) {
+        const guideData = data.filter(b => b.status === 'published' || b.guideId === user.uid);
+        setBookings(guideData);
+      } else {
+        setBookings(data);
+      }
       
-      setBookings(data);
       setLoading(false);
     }, (error) => {
       console.error("Error en Firebase:", error);
@@ -42,45 +60,61 @@ const MyBookings = () => {
     });
 
     return () => unsubscribe();
-  }, []);
+  }, [user, isGuide]);
 
-  // Lógica de filtrado flexible para evitar errores de mayúsculas/minúsculas
   const filteredBookings = useMemo(() => {
     return bookings.filter(b => {
       const status = b.status?.toLowerCase() || 'pending';
       if (filter === 'Todos') return true;
-      if (filter === 'Pendientes') return status === 'pending' || status === 'pendiente';
-      if (filter === 'Por Pagar') return status === 'confirmed' || status === 'approved' || status === 'confirmado';
-      if (filter === 'Pagados') return status === 'paid' || status === 'pagado';
+      
+      if (isGuide) {
+        if (filter === 'Bolsa Abierta') return status === 'published';
+        if (filter === 'Por Confirmar') return status === 'pending' || status === 'pendiente';
+        if (filter === 'Historial') return status === 'confirmed' || status === 'paid';
+      } else {
+        if (filter === 'Pendientes') return status === 'published' || status === 'pending' || status === 'pendiente';
+        if (filter === 'Por Pagar') return status === 'confirmed' || status === 'approved';
+        if (filter === 'Pagados') return status === 'paid';
+      }
       return false;
     });
-  }, [bookings, filter]);
+  }, [bookings, filter, isGuide]);
 
-  const handlePayment = async (id) => {
-    if (!window.confirm("¿Confirmas el pago de este tour?")) return;
+  // Redirección directa al componente CheckoutPage simulando el comportamiento de Wompi
+  const handleGoToCheckout = (id, total) => {
+    navigate(`/checkout/${id}?amount=${total}`);
+  };
+
+  const handleAcceptBooking = async (id) => {
+    if (!window.confirm("¿Deseas aceptar y confirmar esta reserva?")) return;
     try {
-      const ref = doc(db, "bookings", id);
-      await updateDoc(ref, {
-        status: 'paid',
-        paymentDate: serverTimestamp()
+      await updateDoc(doc(db, "bookings", id), {
+        status: 'confirmed',
+        guideId: user.uid,
+        guideName: user.displayName || profile?.name || "Guía Local",
+        acceptedAt: serverTimestamp()
       });
-      alert("¡Pago realizado con éxito!");
+      alert("¡Reserva confirmada con éxito!");
     } catch (e) {
-      alert("Error al procesar el pago");
+      alert("Error al confirmar la reserva");
     }
   };
 
-  if (loading) return <div className="loading-screen">Cargando tus aventuras...</div>;
+  if (loading) return <div className="loading-screen">Cargando aventuras...</div>;
+
+  const tabs = isGuide 
+    ? ['Todos', 'Bolsa Abierta', 'Por Confirmar', 'Historial'] 
+    : ['Todos', 'Pendientes', 'Por Pagar', 'Pagados'];
 
   return (
     <div className="bookings-view">
       <header className="view-header">
-        <h1>Mis Reservas</h1>
-        <p>Gestiona tus tours y confirma pagos pendientes.</p>
+        <h1>{isGuide ? "Panel de Servicios (Guía)" : "Mis Reservas (Turista)"}</h1>
+        <p>{isGuide ? "Toma servicios de la bolsa o gestiona tus asignaciones." : "Gestiona tus tours y confirma pagos pendientes."}</p>
       </header>
 
       <div className="filter-tabs-container">
-        {['Todos', 'Pendientes', 'Por Pagar', 'Pagados'].map(tab => (
+        {tabs.map(tab => (
           <button 
             key={tab}
             className={`tab-item ${filter === tab ? 'active' : ''}`}
@@ -94,35 +128,52 @@ const MyBookings = () => {
       <div className="bookings-grid">
         {filteredBookings.length === 0 ? (
           <div className="empty-state">
-            <p>No encontramos reservas en <strong>{filter}</strong></p>
-            <span>Si tienes reservas, verifica que el Guía las haya aprobado.</span>
+            <p>No encontramos registros en <strong>{filter}</strong></p>
           </div>
         ) : (
           filteredBookings.map(book => (
             <div key={book.id} className={`booking-card status-${book.status}`}>
               <div className="card-badge">
-                {book.status === 'pending' && '⏳ Esperando Guía'}
-                {book.status === 'confirmed' && '✅ Aprobado'}
-                {book.status === 'paid' && '💎 Pagado'}
+                {book.status === 'published' && '🌍 Bolsa Abierta (Libre)'}
+                {book.status === 'pending' && '⏳ Esperando Confirmación'}
+                {book.status === 'confirmed' && '✅ Aprobado / Por Pagar'}
+                {book.status === 'paid' && '💎 Servicio Pagado'}
               </div>
               
               <div className="card-main-info">
                 <h3>{book.tourTitle || "Tour en Medellín"}</h3>
                 <div className="meta-info">
-                  <p>📅 {book.date}</p>
-                  <p>👤 {book.numPersons || book.guests} personas</p>
+                  <p>📅 Fecha: {book.date}</p>
+                  <p>👤 Personas: {book.numPersons || book.guests}</p>
+                  {isGuide && (
+                    <>
+                      <p>👤 Turista: {book.touristName || "No indicado"}</p>
+                      <p>✉️ Email: {book.touristEmail || "No indicado"}</p>
+                    </>
+                  )}
+                  {!isGuide && book.guideName && (
+                    <p>🗺️ Guía asignado: <strong>{book.guideName}</strong></p>
+                  )}
                 </div>
               </div>
 
               <div className="card-footer-price">
                 <div className="price-box">
                   <span>Precio Total</span>
-                  <strong>${book.totalPrice?.toLocaleString()} COP</strong>
+                  <strong>${book.totalPrice?.toLocaleString('es-CO')} COP</strong>
                 </div>
                 
-                {(book.status === 'confirmed' || book.status === 'approved') && (
-                  <button className="pay-now-btn" onClick={() => handlePayment(book.id)}>
-                    Pagar Ahora
+                {/* ACCIÓN DEL TURISTA: Redirige a la vista de pasarela de pagos */}
+                {!isGuide && (book.status === 'confirmed' || book.status === 'approved') && (
+                  <button className="pay-now-btn" onClick={() => handleGoToCheckout(book.id, book.totalPrice)}>
+                    Pagar Ahora 💳
+                  </button>
+                )}
+
+                {/* ACCIÓN DEL GUÍA: Aceptar / Tomar servicio */}
+                {isGuide && (book.status === 'published' || book.status === 'pending') && (
+                  <button className="pay-now-btn" style={{ background: '#3b82f6' }} onClick={() => handleAcceptBooking(book.id)}>
+                    Aceptar Servicio
                   </button>
                 )}
               </div>
@@ -131,39 +182,60 @@ const MyBookings = () => {
         )}
       </div>
 
-      {/* ERROR CORREGIDO: Se quitó el atributo 'jsx' */}
       <style>{`
-        .bookings-view { padding: 20px; animation: fadeIn 0.5s ease; }
-        .view-header h1 { color: #1e293b; font-size: 2rem; font-weight: 800; margin-bottom: 5px; }
-        .filter-tabs-container { display: flex; gap: 10px; margin: 30px 0; }
+        .bookings-view { padding: 40px; background-color: #f8fafc; min-height: 100vh; font-family: 'Inter', sans-serif; }
+        .view-header { margin-bottom: 40px; }
+        .view-header h1 { color: #0f172a; font-size: 2.5rem; font-weight: 800; letter-spacing: -0.05em; margin-bottom: 8px; }
+        .view-header p { color: #64748b; font-size: 1.1rem; }
+        
+        .filter-tabs-container { display: flex; gap: 12px; margin-bottom: 35px; border-bottom: 2px solid #e2e8f0; padding-bottom: 15px; }
         .tab-item { 
-          padding: 10px 20px; border-radius: 30px; border: 1px solid #e2e8f0; 
-          background: white; cursor: pointer; font-weight: 600; color: #64748b; transition: 0.3s;
+          padding: 12px 24px; border-radius: 50px; border: 1px solid #cbd5e1; 
+          background: white; cursor: pointer; font-weight: 700; color: #475569; transition: all 0.2s ease-in-out; font-size: 0.95rem;
         }
-        .tab-item.active { background: #ff5a3c; color: white; border-color: #ff5a3c; box-shadow: 0 4px 10px rgba(255,90,60,0.2); }
+        .tab-item:hover { background: #f1f5f9; color: #0f172a; border-color: #94a3b8; }
+        .tab-item.active { background: #ff5a3c; color: white; border-color: #ff5a3c; box-shadow: 0 10px 15px -3px rgba(255,90,60,0.3); }
         
-        .bookings-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 20px; }
+        .bookings-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 28px; }
         .booking-card { 
-          background: white; padding: 25px; border-radius: 20px; border: 1px solid #f1f5f9;
-          box-shadow: 0 4px 6px rgba(0,0,0,0.02); position: relative;
+          background: white; padding: 30px; border-radius: 24px; border: 1px solid #e2e8f0;
+          box-shadow: 0 10px 15px -3px rgba(0,0,0,0.01), 0 4px 6px -4px rgba(0,0,0,0.015); position: relative;
+          display: flex; flex-direction: column; justify-content: space-between; transition: transform 0.2s, box-shadow 0.2s;
         }
-        .card-badge { font-size: 0.7rem; font-weight: 800; text-transform: uppercase; margin-bottom: 15px; }
-        .status-pending { border-left: 5px solid #f59e0b; }
-        .status-confirmed { border-left: 5px solid #3b82f6; }
-        .status-paid { border-left: 5px solid #10b981; }
+        .booking-card:hover { transform: translateY(-4px); box-shadow: 0 20px 25px -5px rgba(0,0,0,0.05), 0 8px 10px -6px rgba(0,0,0,0.05); }
         
-        .card-main-info h3 { font-size: 1.2rem; color: #1e293b; margin-bottom: 10px; }
-        .meta-info p { color: #94a3b8; font-size: 0.9rem; margin: 3px 0; }
-        .card-footer-price { border-top: 1px solid #f1f5f9; margin-top: 20px; padding-top: 15px; display: flex; justify-content: space-between; align-items: center; }
-        .price-box span { font-size: 0.7rem; color: #94a3b8; display: block; }
-        .price-box strong { font-size: 1.1rem; color: #ff5a3c; }
+        .card-badge { font-size: 0.75rem; font-weight: 800; text-transform: uppercase; margin-bottom: 20px; padding: 6px 14px; border-radius: 50px; display: inline-block; width: fit-content; }
+        
+        .status-published { border-top: 4px solid #10b981; }
+        .status-published .card-badge { background: #d1fae5; color: #065f46; }
+        
+        .status-pending { border-top: 4px solid #f59e0b; }
+        .status-pending .card-badge { background: #fef3c7; color: #92400e; }
+        
+        .status-confirmed { border-top: 4px solid #3b82f6; }
+        .status-confirmed .card-badge { background: #dbeafe; color: #1e40af; }
+        
+        .status-paid { border-top: 4px solid #6366f1; }
+        .status-paid .card-badge { background: #e0e7ff; color: #3730a3; }
+        
+        .card-main-info h3 { font-size: 1.35rem; color: #1e293b; font-weight: 700; margin-bottom: 12px; letter-spacing: -0.02em; }
+        .meta-info p { color: #64748b; font-size: 0.95rem; margin: 6px 0; display: flex; align-items: center; gap: 8px; }
+        
+        .card-footer-price { border-top: 1px solid #f1f5f9; margin-top: 25px; padding-top: 20px; display: flex; justify-content: space-between; align-items: center; }
+        .price-box span { font-size: 0.75rem; color: #64748b; text-transform: uppercase; font-weight: 700; tracking: 0.05em; display: block; }
+        .price-box strong { font-size: 1.3rem; color: #0f172a; font-weight: 800; }
         
         .pay-now-btn { 
-          background: #10b981; color: white; border: none; padding: 10px 18px; 
-          border-radius: 12px; font-weight: 700; cursor: pointer; transition: 0.3s;
+          background: #10b981; color: white; border: none; padding: 12px 22px; 
+          border-radius: 14px; font-weight: 700; cursor: pointer; transition: all 0.2s ease; font-size: 0.95rem;
+          box-shadow: 0 4px 6px -1px rgba(16,185,129,0.2);
         }
-        .pay-now-btn:hover { background: #059669; transform: scale(1.05); }
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        .pay-now-btn:hover { background: #059669; transform: translateY(-1px); box-shadow: 0 10px 15px -3px rgba(16,185,129,0.3); }
+        .pay-now-btn:active { transform: translateY(1px); }
+        
+        .empty-state { grid-column: 1 / -1; text-align: center; padding: 60px; background: white; border-radius: 20px; border: 2px dashed #cbd5e1; color: #64748b; font-size: 1.1rem; }
+        .loading-screen { display: flex; justify-content: center; align-items: center; min-height: 100vh; font-size: 1.2rem; font-weight: 700; color: #64748b; background: #f8fafc; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
       `}</style>
     </div>
   );

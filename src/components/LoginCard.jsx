@@ -4,7 +4,7 @@ import { useNavigate, Link } from "react-router-dom";
 import ModalNotificacion from "./ModalNotificacion";
 
 export default function LoginCard() {
-  const { login, loginWithGoogle, resetPassword, profile } = useAuth();
+  const { login, loginWithGoogle, resetPassword, profile, user } = useAuth();
   const navigate = useNavigate();
 
   const [form, setForm]         = useState({ email: "", password: "" });
@@ -15,11 +15,20 @@ export default function LoginCard() {
 
   const handleChange = (e) => setForm(prev => ({ ...prev, [e.target.name]: e.target.value }));
 
-  // Redirección automática cuando el perfil está disponible
+  // Redirección automática coordinada con el estado de autenticación y el perfil de Firestore
   useEffect(() => {
-    if (!profile) return;
-    if (profile.role === "admin")   { navigate("/admin/analytics", { replace: true }); return; }
-    if (profile.role === "tourist") { navigate("/tourist/explore", { replace: true }); return; }
+    if (!user || !profile) return;
+
+    if (profile.role === "admin") { 
+      navigate("/admin/analytics", { replace: true }); 
+      return; 
+    }
+    
+    if (profile.role === "tourist") { 
+      navigate("/tourist/explore", { replace: true }); 
+      return; 
+    }
+    
     if (profile.role === "guide") {
       if (profile.status === "approved") {
         navigate("/guide/my-tours", { replace: true });
@@ -27,13 +36,13 @@ export default function LoginCard() {
         navigate("/waiting-approval", { replace: true });
       }
     }
-  }, [profile, navigate]);
+  }, [user, profile, navigate]);
 
   const onGoogleLogin = async () => {
     setLoading(true);
     try {
       await loginWithGoogle();
-      // La redirección la maneja el useEffect de arriba cuando llega el profile
+      // La redirección la maneja el useEffect de arriba cuando llegan los datos
     } catch (error) {
       console.error("Google Error:", error);
       setNotif({ type: "error", title: "Error de Google", message: "No se pudo completar el acceso." });
@@ -69,7 +78,7 @@ export default function LoginCard() {
     setLoading(true);
     try {
       await login(form.email, form.password);
-      // Redirección automática vía useEffect cuando cargue el profile
+      // Redirección automática vía useEffect al actualizar el estado global de AuthContext
     } catch (err) {
       const msg =
         err.code === "auth/user-not-found"      ? "Usuario no registrado." :

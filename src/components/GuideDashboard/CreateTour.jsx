@@ -63,10 +63,10 @@ const CreateTour = () => {
         category: form.category,
         description: form.description,
         image: form.image,
-        guideId: currentUser.uid,
+        creatorGuideId: currentUser.uid, 
         guideName: currentUser.displayName || 'Guía TourMate',
         rating: 5.0,
-        isApproved: false,   // ← CLAVE: el admin debe aprobar antes de que sea visible
+        isApproved: false,   
         active: false,
         status: 'pending',
         createdAt: serverTimestamp()
@@ -91,10 +91,8 @@ const CreateTour = () => {
         </header>
 
         <form onSubmit={handleSubmit} className="ct-form-grid">
-          {/* LADO IZQUIERDO: IMAGEN */}
           <div className="ct-upload-section">
             <label className="ct-label">Imagen de Portada*</label>
-            {/* El div actúa como botón para abrir el file picker */}
             <div
               className={`ct-dropzone ${preview ? 'has-preview' : ''}`}
               style={{ backgroundImage: preview ? `url(${preview})` : 'none' }}
@@ -108,7 +106,6 @@ const CreateTour = () => {
                 </div>
               )}
             </div>
-            {/* Input oculto, manejado por ref */}
             <input
               ref={fileInputRef}
               type="file"
@@ -127,7 +124,6 @@ const CreateTour = () => {
             )}
           </div>
 
-          {/* LADO DERECHO: INPUTS */}
           <div className="ct-inputs-section">
             <div className="ct-group full">
               <label>Título de la Experiencia*</label>
@@ -182,38 +178,22 @@ const CreateTour = () => {
         .ct-header p { color: #64748b; margin-top: 8px; }
         .ct-form-grid { display: grid; grid-template-columns: 300px 1fr; gap: 40px; }
         .ct-label { display: block; font-size: 0.85rem; font-weight: 800; color: #475569; margin-bottom: 12px; }
-        .ct-dropzone {
-          width: 100%; height: 380px; border: 2px dashed #cbd5e1; border-radius: 20px;
-          cursor: pointer; transition: 0.3s; background-size: cover; background-position: center;
-          overflow: hidden; display: flex; align-items: center; justify-content: center;
-        }
+        .ct-dropzone { width: 100%; height: 380px; border: 2px dashed #cbd5e1; border-radius: 20px; cursor: pointer; transition: 0.3s; background-size: cover; background-position: center; overflow: hidden; display: flex; align-items: center; justify-content: center; }
         .ct-dropzone:hover { border-color: #ff5a3c; background-color: #fffaf9; }
         .ct-dropzone.has-preview { border: none; }
         .ct-placeholder { text-align: center; padding: 40px 20px; color: #94a3b8; }
         .ct-placeholder .icon { font-size: 2.5rem; display: block; margin-bottom: 15px; }
-        .ct-btn-remove-img {
-          margin-top: 10px; width: 100%; background: #fee2e2; color: #ef4444;
-          border: none; border-radius: 10px; padding: 8px; cursor: pointer; font-weight: 600;
-        }
+        .ct-btn-remove-img { margin-top: 10px; width: 100%; background: #fee2e2; color: #ef4444; border: none; border-radius: 10px; padding: 8px; cursor: pointer; font-weight: 600; }
         .ct-inputs-section { display: flex; flex-direction: column; gap: 20px; }
         .ct-row { display: grid; grid-template-columns: 1.5fr 1fr 0.8fr; gap: 15px; }
         .ct-group label { display: block; font-size: 0.85rem; font-weight: 700; color: #64748b; margin-bottom: 8px; }
-        .ct-group input, .ct-group select, .ct-group textarea {
-          width: 100%; padding: 14px; border: 1px solid #e2e8f0; border-radius: 12px;
-          font-size: 0.95rem; transition: 0.2s; box-sizing: border-box;
-        }
+        .ct-group input, .ct-group select, .ct-group textarea { width: 100%; padding: 14px; border: 1px solid #e2e8f0; border-radius: 12px; font-size: 0.95rem; transition: 0.2s; box-sizing: border-box; }
         .ct-group input:focus, .ct-group textarea:focus { border-color: #ff5a3c; outline: none; box-shadow: 0 0 0 4px rgba(255,90,60,0.1); }
-        .ct-btn-submit {
-          background: #ff5a3c; color: white; border: none; padding: 18px;
-          border-radius: 16px; font-size: 1.05rem; font-weight: 800; cursor: pointer; transition: 0.3s;
-        }
+        .ct-btn-submit { background: #ff5a3c; color: white; border: none; padding: 18px; border-radius: 16px; font-size: 1.05rem; font-weight: 800; cursor: pointer; transition: 0.3s; }
         .ct-btn-submit:hover { transform: translateY(-3px); box-shadow: 0 10px 25px rgba(255,90,60,0.3); }
         .ct-btn-submit:disabled { background: #cbd5e1; cursor: not-allowed; transform: none; box-shadow: none; }
         .ct-hint { color: #94a3b8; font-size: 0.8rem; text-align: center; margin: 0; }
-        @media (max-width: 900px) {
-          .ct-form-grid { grid-template-columns: 1fr; }
-          .ct-dropzone { height: 250px; }
-        }
+        @media (max-width: 900px) { .ct-form-grid { grid-template-columns: 1fr; } .ct-dropzone { height: 250px; } }
       `}</style>
     </div>
   );

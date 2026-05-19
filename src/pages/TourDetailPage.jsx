@@ -15,25 +15,24 @@ import {
 const TourDetailPage = () => {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { user, profile } = useAuth();   // ← useAuth en lugar de auth.currentUser directamente
+  const { user, profile } = useAuth();
 
   const [tour, setTour]           = useState(null);
   const [loading, setLoading]     = useState(true);
   const [isReserving, setIsReserving] = useState(false);
   const [error, setError]         = useState(null);
-  const [bookingOk, setBookingOk] = useState(false);
+  const [bookingOk, setBookingOk]   = useState(false);
+  const [bookingError, setBookingError] = useState("");
 
   const [numPeople, setNumPeople]     = useState(1);
   const [bookingDate, setBookingDate] = useState("");
   const [activeTab, setActiveTab]     = useState("descripcion");
   const [openFaq, setOpenFaq]         = useState(null);
 
-  // ── Fecha mínima: mañana ──
   const minDate = new Date();
   minDate.setDate(minDate.getDate() + 1);
   const minDateStr = minDate.toISOString().split("T")[0];
 
-  // ── Carga del tour ──
   useEffect(() => {
     if (!id) return;
     const fetchTour = async () => {
@@ -52,39 +51,41 @@ const TourDetailPage = () => {
     fetchTour();
   }, [id]);
 
-  // ── Reserva ──
   const handleBooking = async () => {
     if (!user) { navigate("/login"); return; }
     if (profile?.role === "guide" || profile?.role === "admin") {
-      alert("Solo los turistas pueden realizar reservas."); return;
+      setBookingError("Solo los turistas pueden realizar reservas."); return;
     }
-    if (!bookingDate) { alert("Selecciona una fecha para el tour."); return; }
+    if (!bookingDate) { setBookingError("Selecciona una fecha para el tour."); return; }
     if (!tour) return;
 
+    setBookingError("");
     setIsReserving(true);
+
     try {
       const safeTitle = tour.title || tour.name || "Tour Medellín";
       const safePrice = Number(tour.price || 0);
 
-      // ⚠️ CLAVE: usamos "userId" (no touristId) para que MyBookings y las reglas de Firestore lo lean correctamente
+      // Si el tour tiene guía asignado entra como 'pending', si no, entra libre a la bolsa como 'published'
+      const finalStatus = tour.guideId ? "pending" : "pending";
+
       await addDoc(collection(db, "bookings"), {
-        tourId:       tour.id,
-        guideId:      tour.guideId || "",
-        userId:       user.uid,                          // campo estándar del proyecto
-        touristName:  user.displayName || profile?.name || "Turista",
-        touristEmail: user.email || "",
-        tourTitle:    safeTitle,
-        tourImage:    tour.image || tour.imageUrl || "",
+        tourId:         tour.id,
+        guideId:        tour.guideId || "",   
+        userId:         user.uid,                                          
+        touristName:    user.displayName || profile?.name || "Turista",
+        touristEmail:   user.email || "",
+        tourTitle:      safeTitle,
+        tourImage:      tour.image || tour.imageUrl || "",
         pricePerPerson: safePrice,
-        numPersons:   Number(numPeople),                 // campo estándar (MyBookings usa numPersons)
-        totalPrice:   safePrice * Number(numPeople),
-        date:         bookingDate,
-        status:       "pending",
-        meetingPoint: tour.meetingPoint || "Medellín Centro",
-        createdAt:    serverTimestamp()
+        numPersons:     Number(numPeople),                 
+        totalPrice:     safePrice * Number(numPeople),
+        date:           bookingDate,
+        status:         finalStatus,
+        meetingPoint:   tour.meetingPoint || "Medellín Centro",
+        createdAt:      serverTimestamp()
       });
 
-      // Incrementar contador de reservas en el tour
       await updateDoc(doc(db, "tours", id), {
         totalReservations: increment(1)
       });
@@ -92,13 +93,12 @@ const TourDetailPage = () => {
       setBookingOk(true);
     } catch (err) {
       console.error("Booking Error:", err);
-      alert("No pudimos completar la reserva. Intenta de nuevo.");
+      setBookingError("No pudimos completar la reserva. Intenta de nuevo.");
     } finally {
       setIsReserving(false);
     }
   };
 
-  // ── FAQ ──
   const faqData = [
     { q: "¿Qué debo llevar?", a: tour?.whatToBring || "Ropa cómoda, protector solar, documento de identidad y ganas de explorar." },
     { q: "¿Hay límite de edad?", a: "El tour es apto para todas las edades. Consulta al guía si tienes necesidades especiales." },
@@ -151,9 +151,8 @@ const TourDetailPage = () => {
       {/* LAYOUT */}
       <div className="tm-content-layout">
 
-        {/* ── MAIN INFO ── */}
+        {/* MAIN INFO */}
         <main className="tm-main-info">
-
           <nav className="tm-tabs-nav">
             {["descripcion", "itinerario", "incluye", "faq"].map(tab => (
               <button
@@ -192,7 +191,7 @@ const TourDetailPage = () => {
                     <div className="itinerary-step"><span className="step-num">02</span><p>Recorrido por los puntos principales de la experiencia.</p></div>
                     <div className="itinerary-step"><span className="step-num">03</span><p>Parada para fotos y tiempo libre en zonas destacadas.</p></div>
                     <div className="itinerary-step"><span className="step-num">04</span><p>Cierre del tour y despedida en el punto de partida.</p></div>
-                  </>
+                  </                  >
                 )
               }
             </div>
@@ -231,14 +230,14 @@ const TourDetailPage = () => {
           )}
         </main>
 
-        {/* ── SIDEBAR RESERVA ── */}
+        {/* SIDEBAR RESERVA */}
         <aside className="tm-sidebar">
           <div className="tm-booking-card">
             {bookingOk ? (
               <div className="booking-success">
                 <div style={{ fontSize: "3rem", marginBottom: 10 }}>🎉</div>
                 <h3>¡Reserva enviada!</h3>
-                <p>El guía revisará tu solicitud. Te notificaremos cuando la confirme.</p>
+                <p>Tu solicitud ha sido procesada con éxito.</p>
                 <button className="btn-primary-reserva" style={{ marginTop: 20 }} onClick={() => navigate("/tourist/my-bookings")}>
                   Ver mis reservas
                 </button>
@@ -282,6 +281,12 @@ const TourDetailPage = () => {
                   </div>
                 </div>
 
+                {bookingError && (
+                  <div className="booking-error-msg">
+                    ⚠️ {bookingError}
+                  </div>
+                )}
+
                 {!user ? (
                   <Link to="/login" className="btn-primary-reserva" style={{ display: "block", textAlign: "center", textDecoration: "none" }}>
                     Inicia sesión para reservar
@@ -292,12 +297,13 @@ const TourDetailPage = () => {
                   </button>
                 )}
 
-                <p className="card-footer-text">No se cobra hasta que el guía confirme</p>
+                <p className="card-footer-text">
+                  {!tour.guideId ? "Aparecerá en la bolsa abierta de guías" : "No se cobra hasta que el guía confirme"}
+                </p>
               </>
             )}
           </div>
 
-          {/* Info del guía */}
           {tour.guideName && (
             <div className="guide-small-card">
               <div className="guide-avatar-sm">{tour.guideName.charAt(0).toUpperCase()}</div>
@@ -363,6 +369,7 @@ const TourDetailPage = () => {
         .btn-primary-reserva { width: 100%; border: none; background: #ff5a3c; color: white; padding: 18px; border-radius: 16px; font-size: 1rem; font-weight: 800; cursor: pointer; transition: 0.3s; }
         .btn-primary-reserva:hover:not(:disabled) { background: #e0482b; transform: translateY(-2px); box-shadow: 0 10px 25px rgba(255,90,60,0.3); }
         .btn-primary-reserva:disabled { opacity: .7; cursor: not-allowed; }
+        .booking-error-msg { background: #fef2f2; border: 1px solid #fecaca; color: #dc2626; padding: 12px 15px; border-radius: 12px; font-size: 0.85rem; font-weight: 600; margin-bottom: 12px; line-height: 1.4; }
         .card-footer-text { text-align: center; margin-top: 12px; color: #94a3b8; font-size: .8rem; }
         .booking-success { text-align: center; padding: 10px 0; }
         .booking-success h3 { color: #1e293b; font-size: 1.4rem; margin: 0 0 8px; }
