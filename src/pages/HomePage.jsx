@@ -4,15 +4,8 @@ import { db } from "../firebase/firebaseConfig";
 import { collection, query, where, limit, onSnapshot } from "firebase/firestore";
 import "../styles/HomePage.css";
 
-const STATS = [
-  { num: "5,000+", label: "Turistas satisfechos" },
-  { num: "50+",    label: "Guías Paisas" },
-  { num: "12+",    label: "Rutas Locales" },
-  { num: "4.9★",   label: "Rating Ciudad" },
-];
-
 const HOW = [
-  { step: "01", title: "Elige tu Ruta",         desc: "Explora desde el grafiti tour hasta caminatas por la cordillera." },
+  { step: "01", title: "Elige tu Ruta",          desc: "Explora desde el grafiti tour hasta caminatas por la cordillera." },
   { step: "02", title: "Conecta con tu Guía",   desc: "Expertos locales que conocen cada rincón de la ciudad." },
   { step: "03", title: "Vive Medellín",          desc: "Experiencias seguras, auténticas y llenas de cultura paisa." },
 ];
@@ -20,19 +13,63 @@ const HOW = [
 export default function HomePage() {
   const [realTours, setRealTours] = useState([]);
   const [loading, setLoading]     = useState(true);
+  
+  // Estados para métricas reales de la plataforma
+  const [totalGuides, setTotalGuides] = useState(0);
+  const [totalToursCount, setTotalToursCount] = useState(0);
+  const [totalTourists, setTotalTourists] = useState(0);
+  const [cityRating, setCityRating] = useState("5.0");
 
   useEffect(() => {
-    // Sin orderBy para evitar índice compuesto — ordenamos en cliente
-    const q = query(
-      collection(db, "tours"),
-      where("isApproved", "==", true),
-      where("active", "==", true),
-      limit(9)
-    );
+    // 1. Escuchar Guías Activos
+    const qGuides = query(collection(db, "users"), where("role", "==", "guide"), where("status", "==", "approved"));
+    const unsubGuides = onSnapshot(qGuides, (snap) => {
+      setTotalGuides(snap.size);
+    });
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
+    // 2. Escuchar Todas las Rutas Activas y Calcular Rating Promedio
+    const qAllTours = query(collection(db, "tours"), where("isApproved", "==", true), where("active", "==", true));
+    const unsubAllTours = onSnapshot(qAllTours, (snap) => {
+      setTotalToursCount(snap.size);
+      
+      // Cálculo dinámico del rating promedio de la ciudad
+      if (snap.size > 0) {
+        let sumRatings = 0;
+        let countWithRating = 0;
+        snap.forEach((doc) => {
+          const data = doc.data();
+          if (data.rating) {
+            sumRatings += Number(data.rating);
+            countWithRating++;
+          }
+        });
+        if (countWithRating > 0) {
+          const avg = sumRatings / countWithRating;
+          setCityRating(avg.toFixed(1) + "★");
+        } else {
+          setCityRating("5.0★");
+        }
+      } else {
+        setCityRating("4.9★");
+      }
+    });
+
+    // 3. Escuchar Reservas Efectivas (Turistas Atendidos)
+    const qBookings = query(collection(db, "bookings"), where("status", "in", ["paid", "confirmed"]));
+    const unsubBookings = onSnapshot(qBookings, (snap) => {
+      let touristsSum = 0;
+      snap.forEach((doc) => {
+        const data = doc.data();
+        // Sumar pasajeros reales de cada reserva hecha en Medellín
+        touristsSum += Number(data.numPersons || data.guests || 1);
+      });
+      setTotalTourists(touristsSum);
+    });
+
+    // 4. Cargar tarjetas del Grid del Home
+    const qHomeTours = query(collection(db, "tours"), where("isApproved", "==", true), where("active", "==", true), limit(9));
+    const unsubHomeTours = onSnapshot(qHomeTours, (snapshot) => {
       const toursData = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
-      // Ordenar por createdAt en cliente (evita índice compuesto en Firestore)
       toursData.sort((a, b) => {
         const ta = a.createdAt?.seconds || 0;
         const tb = b.createdAt?.seconds || 0;
@@ -45,8 +82,21 @@ export default function HomePage() {
       setLoading(false);
     });
 
-    return () => unsubscribe();
+    return () => {
+      unsubGuides();
+      unsubAllTours();
+      unsubBookings();
+      unsubHomeTours();
+    };
   }, []);
+
+  // Estructura de datos unificada y formateada con fallbacks elegantes
+  const dynamicStats = [
+    { num: totalTourists > 0 ? `${totalTourists.toLocaleString()}+` : "0", label: "Turistas satisfechos" },
+    { num: totalGuides > 0 ? `${totalGuides}` : "0", label: "Guías Paisas" },
+    { num: totalToursCount > 0 ? `${totalToursCount}+` : "0", label: "Rutas Locales" },
+    { num: cityRating, label: "Rating Ciudad" },
+  ];
 
   return (
     <div className="home">
@@ -67,7 +117,7 @@ export default function HomePage() {
             <Link to="/register" className="btn btn--ghost btn--lg">Soy Guía en Medellín →</Link>
           </div>
           <div className="hero__stats">
-            {STATS.map(s => (
+            {dynamicStats.map(s => (
               <div key={s.label} className="hero__stat">
                 <strong>{s.num}</strong>
                 <span>{s.label}</span>
