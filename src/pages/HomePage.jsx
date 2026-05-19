@@ -50,7 +50,7 @@ export default function HomePage() {
           setCityRating("5.0★");
         }
       } else {
-        setCityRating("4.9★");
+        setCityRating("0 ★");
       }
     });
 
@@ -90,6 +90,7 @@ export default function HomePage() {
     };
   }, []);
 
+  
   // Estructura de datos unificada y formateada con fallbacks elegantes
   const dynamicStats = [
     { num: totalTourists > 0 ? `${totalTourists.toLocaleString()}+` : "0", label: "Turistas satisfechos" },
