@@ -2,11 +2,13 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
 import { db } from '../firebase/firebaseConfig';
 import { doc, updateDoc, serverTimestamp } from 'firebase/firestore';
+import { useAuth } from '../context/AuthContext'; // Asegura que la ruta a tu contexto sea correcta
 
 const CheckoutPage = () => {
   const { bookingId } = useParams();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
+  const { user } = useAuth(); // Extracción del usuario actual logueado (el turista)
   
   const [isProcessing, setIsProcessing] = useState(false);
   const [isScriptLoaded, setIsScriptLoaded] = useState(false);
@@ -27,14 +29,12 @@ const CheckoutPage = () => {
     if (!script) {
       script = document.createElement('script');
       script.src = "https://checkout.wompi.co/widget.js";
-      // Forzamos a que el script de Wompi reconozca la llave pública desde el atributo del DOM (Evita el bug del undefined)
       script.setAttribute('data-public-key', WOMPI_PUBLIC_KEY);
       script.async = true;
       document.body.appendChild(script);
     }
 
     const handleScriptLoad = () => {
-      // Le damos un mini timeout para que el objeto global termine de inicializarse bien
       setTimeout(() => {
         setIsScriptLoaded(true);
       }, 300);
@@ -70,7 +70,6 @@ const CheckoutPage = () => {
 
     setIsProcessing(true);
 
-    // Referencia dinámica única para la sandbox
     const uniqueReference = `TM-${bookingId.replace(/[^a-zA-Z0-9]/g, "")}-${Date.now()}`;
 
     try {
@@ -86,10 +85,14 @@ const CheckoutPage = () => {
 
         if (status === 'APPROVED') {
           try {
+            // Definimos un nombre de cliente limpio basado en los datos reales del usuario autenticado
+            const detectedName = user?.displayName || user?.name || user?.email?.split('@')[0] || 'Turista TourMate';
+
             await updateDoc(doc(db, "bookings", bookingId), {
               status: 'paid',
               transactionId: result.transaction.id,
-              paidAt: serverTimestamp()
+              paidAt: serverTimestamp(),
+              customerName: detectedName // <── AQUÍ SE GUARDA EL NOMBRE REAL EN FIRESTORE
             });
             
             alert("¡Pago aprobado con éxito! Tu tour ha sido confirmado.");
@@ -100,7 +103,6 @@ const CheckoutPage = () => {
             setIsProcessing(false); 
           }
         } else {
-          // Si el estado es DECLINED, ERROR o el usuario cierra la ventana, liberamos el botón
           alert(`Transacción terminada. Estado: ${status || 'Ventana cerrada por el usuario'}`);
           setIsProcessing(false); 
         }
@@ -315,7 +317,7 @@ const CheckoutPage = () => {
 
         .co-btn-pay:hover:not(:disabled) {
           background-color: #059669;
-         }
+        }
 
         .co-btn-pay:active:not(:disabled) {
           transform: scale(0.98);
@@ -370,7 +372,6 @@ const CheckoutPage = () => {
           to { transform: rotate(360deg); }
         }
 
-        /* ── RESPONSIVIDAD PARA DISPOSITIVOS MÓVILES ── */
         @media (max-width: 480px) {
           .co-page-container {
             padding: 0;

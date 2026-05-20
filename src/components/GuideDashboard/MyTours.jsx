@@ -14,7 +14,8 @@ import {
 } from 'firebase/firestore';
 
 /**
- * MyTours - Vista oficial del catálogo de experiencias de TourMate.
+ * MyTours - Vista del catálogo de experiencias del guía.
+ * Integrado al layout global sin romper la estructura de navegación de TourMate.
  */
 const MyTours = () => {
   const { user } = useAuth();
@@ -33,7 +34,7 @@ const MyTours = () => {
     setLoading(true);
     setErrorNet(false);
 
-    // Mapeo adaptativo: Busca por 'creatorGuideId' según la estructura real de tu Firestore
+    // Consulta adaptada a tu campo real de Firestore
     const q = query(
       collection(db, "tours"),
       where("creatorGuideId", "==", user.uid)
@@ -104,50 +105,53 @@ const MyTours = () => {
   };
 
   return (
-    <div className="my-tours-container">
+    <div className="my-tours-wrapper-content">
       
-      <header className="section-header">
-        <div className="title-group">
+      {/* CUADRO DE AVISO DE RED */}
+      {errorNet && (
+        <div className="network-warning-banner">
+          ⚠️ <strong>Conexión bloqueada:</strong> Las peticiones están siendo canceladas por el navegador. Desactiva los escudos o extensiones AdBlock para operar correctamente.
+        </div>
+      )}
+
+      {/* ENCABEZADO INTERNO */}
+      <header className="tours-dash-header">
+        <div className="text-header-group">
           <h1>Mis Experiencias</h1>
           <p>Gestiona el catálogo de tours que ofreces en la ciudad.</p>
         </div>
         
-        <div className="header-actions">
-          <div className="mini-stats">
-            <span><strong>{stats.active}</strong> Visibles</span>
-            <span><strong>{stats.pending}</strong> Pendientes</span>
+        <div className="actions-header-group">
+          <div className="stats-box-pills">
+            <span className="pill-stat dynamic-green"><strong>{stats.active}</strong> Visibles</span>
+            <span className="pill-stat dynamic-amber"><strong>{stats.pending}</strong> Pendientes</span>
           </div>
-          <button className="btn-add-tour" onClick={() => navigate('/guide/create-tour')}>
+          <button className="btn-create-tour-orange" onClick={() => navigate('/guide/create-tour')}>
             + Crear Nuevo Tour
           </button>
         </div>
       </header>
 
-      {errorNet && (
-        <div className="network-warning-banner">
-          ⚠️ <strong>Conexión bloqueada:</strong> Detectamos que las peticiones a la base de datos están siendo canceladas. Por favor desactiva tu AdBlocker o los escudos del navegador para operar el panel.
-        </div>
-      )}
-
-      <div className="tours-grid-layout">
+      {/* GRILLA PRINCIPAL */}
+      <div className="tours-grid-cards-layout">
         {loading ? (
-          <div className="loading-placeholder">
-            <div className="spinner-tourmate"></div>
+          <div className="loading-state-container">
+            <div className="spinner-tourmate-ring"></div>
             <p>Sincronizando rutas en tiempo real...</p>
           </div>
         ) : myTours.length === 0 ? (
-          <div className="empty-state-card">
-            <div className="empty-art">🗺️</div>
+          <div className="empty-catalog-card">
+            <div className="empty-icon-avatar">🗺️</div>
             <h3>Aún no tienes tours publicados</h3>
             <p>Empieza a generar ingresos compartiendo lo mejor de Medellín con el mundo.</p>
-            <button className="btn-cta-primary" onClick={() => navigate('/guide/create-tour')}>
+            <button className="btn-cta-orange-action" onClick={() => navigate('/guide/create-tour')}>
               Publicar mi primera ruta
             </button>
           </div>
         ) : (
           myTours.map((tour) => (
-            <article key={tour.id} className="tour-management-card">
-              <div className="card-image-wrapper">
+            <article key={tour.id} className="tour-management-item-card">
+              <div className="card-media-box">
                 <img
                   src={tour.image || 'https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=400'}
                   alt={tour.title}
@@ -159,34 +163,36 @@ const MyTours = () => {
                 {renderStatusBadge(tour)}
               </div>
 
-              <div className="card-content">
-                <div className="card-main-info">
+              <div className="card-data-body">
+                <div className="card-main-meta-info">
                   <h3>{tour.title}</h3>
-                  <div className="info-meta">
+                  <div className="meta-lines-list">
                     <span>📍 {tour.location}</span>
-                    <span>💰 ${tour.price.toLocaleString('es-CO')} COP</span>
+                    <span className="price-tag-cop">💰 ${tour.price.toLocaleString('es-CO')} COP</span>
                     {tour.duration && <span>🕐 {tour.duration}</span>}
                   </div>
                 </div>
 
-                <div className="card-actions">
-                  <div className="visibility-control">
-                    <label className="switch">
+                <div className="card-footer-controls">
+                  <div className="visibility-switch-box">
+                    <label className="switch-toggle">
                       <input
                         type="checkbox"
                         checked={!!tour.active}
                         onChange={() => toggleVisibility(tour.id, tour.active)}
                         disabled={!tour.isApproved}
                       />
-                      <span className="slider round"></span>
+                      <span className="slider-round-bar"></span>
                     </label>
-                    <span className="switch-label">
-                      {tour.isApproved ? (tour.active ? 'Visible' : 'Oculto') : 'Esperando aprobación'}
+                    <span className="switch-label-text">
+                      {tour.isApproved ? (tour.active ? 'Visible' : 'Oculto') : 'En revisión'}
                     </span>
                   </div>
 
-                  <div className="btn-group">
-                    <button className="btn-icon delete" onClick={() => handleDelete(tour.id)}>🗑</button>
+                  <div className="actions-button-wrapper">
+                    <button className="btn-icon-trash-action" onClick={() => handleDelete(tour.id)} title="Eliminar definitivamente">
+                      🗑️
+                    </button>
                   </div>
                 </div>
               </div>
@@ -196,44 +202,274 @@ const MyTours = () => {
       </div>
 
       <style>{`
-        .my-tours-container { padding: 30px; max-width: 1250px; margin: 0 auto; font-family: system-ui, sans-serif; }
-        .section-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 40px; flex-wrap: wrap; gap: 20px; }
-        .title-group h1 { font-size: 2.2rem; color: #0f172a; margin: 0 0 6px 0; font-weight: 800; }
-        .title-group p { color: #64748b; margin: 0; }
-        .header-actions { display: flex; align-items: center; gap: 20px; }
-        .mini-stats { background: #fff; padding: 12px 24px; border-radius: 14px; display: flex; gap: 20px; font-size: 0.92rem; border: 1px solid #e2e8f0; }
-        .btn-add-tour { background: #ff5a3c; color: white; border: none; padding: 14px 26px; border-radius: 12px; font-weight: 700; cursor: pointer; transition: 0.2s; font-size: 0.95rem; }
-        .btn-add-tour:hover { transform: translateY(-2px); background: #f04f32; }
-        .network-warning-banner { background: #fff7ed; border: 1px solid #ffedd5; color: #c2410c; padding: 16px; border-radius: 12px; margin-bottom: 30px; font-size: 0.95rem; }
-        .tours-grid-layout { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 30px; }
-        .tour-management-card { background: white; border-radius: 24px; overflow: hidden; border: 1px solid #e2e8f0; display: flex; flex-direction: column; transition: transform 0.2s; }
-        .tour-management-card:hover { transform: translateY(-4px); box-shadow: 0 20px 25px -5px rgba(0,0,0,0.05); }
-        .card-image-wrapper { position: relative; height: 200px; background: #f1f5f9; }
-        .card-image-wrapper img { width: 100%; height: 100%; object-fit: cover; }
-        .status-badge { position: absolute; top: 15px; right: 15px; padding: 6px 14px; border-radius: 50px; font-size: 0.75rem; font-weight: 800; }
+        /* Reset e integración limpia en la sección derecha del panel */
+        .my-tours-wrapper-content { 
+          width: 100%;
+          max-width: 1140px; 
+          margin: 0 auto; 
+          padding: 10px 5px;
+          font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; 
+        }
+
+        /* Encabezado */
+        .tours-dash-header { 
+          display: flex; 
+          justify-content: space-between; 
+          align-items: center; 
+          margin-bottom: 35px; 
+          flex-wrap: wrap; 
+          gap: 20px; 
+        }
+        .text-header-group h1 { 
+          font-size: 2rem; 
+          color: #0f172a; 
+          margin: 0 0 6px 0; 
+          font-weight: 800; 
+        }
+        .text-header-group p { 
+          color: #64748b; 
+          margin: 0;
+          font-size: 0.95rem;
+        }
+
+        /* Controles superiores */
+        .actions-header-group { 
+          display: flex; 
+          align-items: center; 
+          gap: 16px; 
+          flex-wrap: wrap;
+        }
+        .stats-box-pills { 
+          background: #ffffff; 
+          padding: 8px 16px; 
+          border-radius: 12px; 
+          display: flex; 
+          gap: 16px; 
+          font-size: 0.88rem; 
+          border: 1px solid #e2e8f0; 
+        }
+        .pill-stat strong { 
+          color: #0f172a; 
+          font-weight: 700; 
+        }
+        .pill-stat.dynamic-green strong { color: #166534; }
+        .pill-stat.dynamic-amber strong { color: #b45309; }
+
+        /* Botón Crear */
+        .btn-create-tour-orange { 
+          background: #ff5a3c; 
+          color: white; 
+          border: none; 
+          padding: 12px 22px; 
+          border-radius: 12px; 
+          font-weight: 700; 
+          cursor: pointer; 
+          transition: all 0.2s ease; 
+          font-size: 0.9rem; 
+        }
+        .btn-create-tour-orange:hover { 
+          background: #e04f35;
+          transform: translateY(-1px);
+        }
+
+        /* Banner de Advertencia */
+        .network-warning-banner { 
+          background: #fff7ed; 
+          border: 1px solid #ffedd5; 
+          color: #c2410c; 
+          padding: 14px 20px; 
+          border-radius: 12px; 
+          margin-bottom: 25px; 
+          font-size: 0.9rem; 
+        }
+
+        /* Grilla adaptativa */
+        .tours-grid-cards-layout { 
+          display: grid; 
+          grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); 
+          gap: 25px; 
+          width: 100%;
+        }
+
+        /* Tarjeta de diseño individual */
+        .tour-management-item-card { 
+          background: #ffffff; 
+          border-radius: 20px; 
+          overflow: hidden; 
+          border: 1px solid #e2e8f0; 
+          display: flex; 
+          flex-direction: column; 
+          transition: transform 0.2s ease, box-shadow 0.2s ease; 
+        }
+        .tour-management-item-card:hover { 
+          transform: translateY(-4px); 
+          box-shadow: 0 12px 20px -5px rgba(0,0,0,0.05); 
+        }
+
+        /* Caja de imagen */
+        .card-media-box { 
+          position: relative; 
+          height: 180px; 
+          width: 100%;
+          background: #f1f5f9; 
+        }
+        .card-media-box img { 
+          width: 100%; 
+          height: 100%; 
+          object-fit: cover; 
+        }
+
+        /* Estados (Badges) */
+        .status-badge { 
+          position: absolute; 
+          top: 12px; 
+          right: 12px; 
+          padding: 5px 12px; 
+          border-radius: 50px; 
+          font-size: 0.72rem; 
+          font-weight: 800; 
+          box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        }
         .status-badge.pending { background: #fef3c7; color: #92400e; }
         .status-badge.approved { background: #dcfce7; color: #166534; }
         .status-badge.paused { background: #f1f5f9; color: #475569; }
-        .card-content { padding: 24px; display: flex; flex-direction: column; flex: 1; justify-content: space-between; }
-        .card-main-info h3 { margin: 0 0 12px 0; color: #1e293b; font-size: 1.25rem; font-weight: 700; }
-        .info-meta { display: flex; flex-direction: column; gap: 6px; margin-bottom: 24px; color: #64748b; font-size: 0.9rem; }
-        .card-actions { display: flex; justify-content: space-between; align-items: center; padding-top: 18px; border-top: 1px solid #f1f5f9; }
-        .visibility-control { display: flex; align-items: center; gap: 12px; }
-        .switch { position: relative; display: inline-block; width: 46px; height: 24px; }
-        .switch input { opacity: 0; width: 0; height: 0; }
-        .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #cbd5e1; transition: .3s; border-radius: 34px; }
-        .slider:before { position: absolute; content: ""; height: 18px; width: 18px; left: 3px; bottom: 3px; background-color: white; transition: .3s; border-radius: 50%; }
-        input:checked + .slider { background-color: #10b981; }
-        input:checked + .slider:before { transform: translateX(22px); }
-        .switch-label { font-size: 0.8rem; font-weight: 700; color: #475569; text-transform: uppercase; }
-        .btn-icon.delete { width: 40px; height: 40px; border-radius: 12px; border: none; background: #fee2e2; color: #ef4444; cursor: pointer; font-size: 1.1rem; transition: background 0.2s; }
-        .btn-icon.delete:hover { background: #fca5a5; }
-        .loading-placeholder { grid-column: 1/-1; padding: 100px; text-align: center; color: #94a3b8; }
-        .spinner-tourmate { width: 40px; height: 40px; border: 4px solid #f1f5f9; border-top: 4px solid #ff5a3c; border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 20px; }
-        .empty-state-card { grid-column: 1/-1; text-align: center; padding: 80px 40px; background: white; border-radius: 24px; border: 2px dashed #e2e8f0; }
-        .empty-art { font-size: 3.5rem; margin-bottom: 20px; }
-        .btn-cta-primary { background: #ff5a3c; color: white; border: none; padding: 14px 32px; border-radius: 12px; font-weight: 700; cursor: pointer; }
-        @keyframes spin { 100% { transform: rotate(360deg); } }
+
+        /* Contenido de Tarjeta */
+        .card-data-body { 
+          padding: 20px; 
+          display: flex; 
+          flex-direction: column; 
+          flex: 1; 
+          justify-content: space-between; 
+        }
+        .card-main-meta-info h3 { 
+          margin: 0 0 10px 0; 
+          color: #1e293b; 
+          font-size: 1.15rem; 
+          font-weight: 700; 
+          line-height: 1.4;
+        }
+        .meta-lines-list { 
+          display: flex; 
+          flex-direction: column; 
+          gap: 6px; 
+          margin-bottom: 20px; 
+          color: #64748b; 
+          font-size: 0.88rem; 
+        }
+        .price-tag-cop {
+          font-weight: 600;
+          color: #0f172a;
+        }
+
+        /* Footer de Tarjeta */
+        .card-footer-controls { 
+          display: flex; 
+          justify-content: space-between; 
+          align-items: center; 
+          padding-top: 14px; 
+          border-top: 1px solid #f1f5f9; 
+        }
+        .visibility-switch-box { 
+          display: flex; 
+          align-items: center; 
+          gap: 10px; 
+        }
+
+        /* Custom Switch CSS */
+        .switch-toggle { 
+          position: relative; 
+          display: inline-block; 
+          width: 42px; 
+          height: 22px; 
+        }
+        .switch-toggle input { opacity: 0; width: 0; height: 0; }
+        .slider-round-bar { 
+          position: absolute; 
+          cursor: pointer; 
+          top: 0; left: 0; right: 0; bottom: 0; 
+          background-color: #cbd5e1; 
+          transition: .25s; 
+          border-radius: 34px; 
+        }
+        .slider-round-bar:before { 
+          position: absolute; 
+          content: ""; 
+          height: 16px; 
+          width: 16px; 
+          left: 3px; 
+          bottom: 3px; 
+          background-color: white; 
+          transition: .25s; 
+          border-radius: 50%; 
+        }
+        input:checked + .slider-round-bar { background-color: #10b981; }
+        input:checked + .slider-round-bar:before { transform: translateX(20px); }
+        input:disabled + .slider-round-bar { opacity: 0.4; cursor: not-allowed; }
+        
+        .switch-label-text { 
+          font-size: 0.78rem; 
+          font-weight: 700; 
+          color: #475569; 
+          text-transform: uppercase; 
+        }
+
+        /* Botón basura */
+        .btn-icon-trash-action { 
+          width: 36px; 
+          height: 36px; 
+          border-radius: 10px; 
+          border: none; 
+          background: #fee2e2; 
+          color: #ef4444; 
+          cursor: pointer; 
+          font-size: 1rem; 
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          transition: background 0.2s ease; 
+        }
+        .btn-icon-trash-action:hover { background: #fca5a5; }
+
+        /* Placeholders de carga y vacíos */
+        .loading-state-container { 
+          grid-column: 1/-1; 
+          padding: 80px 20px; 
+          text-align: center; 
+          color: #94a3b8; 
+        }
+        .spinner-tourmate-ring { 
+          width: 36px; 
+          height: 36px; 
+          border: 3px solid #f1f5f9; 
+          border-top: 3px solid #ff5a3c; 
+          border-radius: 50%; 
+          animation: spinTour 0.8s linear infinite; 
+          margin: 0 auto 16px; 
+        }
+        .empty-catalog-card { 
+          grid-column: 1/-1; 
+          text-align: center; 
+          padding: 60px 20px; 
+          background: white; 
+          border-radius: 20px; 
+          border: 2px dashed #e2e8f0; 
+        }
+        .empty-icon-avatar { font-size: 3rem; margin-bottom: 16px; }
+        .empty-catalog-card h3 { font-size: 1.3rem; color: #1e293b; margin: 0 0 6px 0; }
+        .empty-catalog-card p { color: #64748b; margin: 0 0 20px 0; font-size: 0.95rem; }
+        .btn-cta-orange-action { 
+          background: #ff5a3c; 
+          color: white; 
+          border: none; 
+          padding: 12px 28px; 
+          border-radius: 12px; 
+          font-weight: 700; 
+          cursor: pointer; 
+          font-size: 0.95rem;
+        }
+
+        @keyframes spinTour { 100% { transform: rotate(360deg); } }
       `}</style>
     </div>
   );
