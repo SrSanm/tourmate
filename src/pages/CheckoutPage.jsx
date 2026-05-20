@@ -7,240 +7,399 @@ const CheckoutPage = () => {
   const { bookingId } = useParams();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-
-  // Obtener el monto de la URL o usar uno por defecto si falla
-  const amountParam = searchParams.get('amount');
-  const totalPrice = amountParam ? Number(amountParam) : 0;
-
-  // Estados de la pasarela
-  const [paymentMethod, setPaymentMethod] = useState('card'); // 'card' | 'pse'
+  
   const [isProcessing, setIsProcessing] = useState(false);
+  const [isScriptLoaded, setIsScriptLoaded] = useState(false);
+  const [loadingError, setLoadingError] = useState(null);
 
-  // Formulario Tarjeta
-  const [cardName, setCardName] = useState('JUAN PEREZ');
-  const [cardNumber, setCardNumber] = useState('4242 4242 4242 4242');
+  const totalPrice = Number(searchParams.get('amount')) || 0;
+  const WOMPI_PUBLIC_KEY = 'pub_test_1fSGccU1LA2blJFDa7EJxRCgSqwQI8yb';
 
-  // Formulario PSE
-  const [selectedBank, setSelectedBank] = useState('');
-  const [personType, setPersonType] = useState('natural'); // 'natural' | 'juridica'
-  const [docType, setDocType] = useState('CC');
-  const [docNumber, setDocNumber] = useState('');
+  // ── Carga Asíncrona y Segura del Widget de Wompi ───────────────────────
+  useEffect(() => {
+    if (window.WidgetCheckout) {
+      setIsScriptLoaded(true);
+      return;
+    }
 
-  // Lista simulada de bancos principales de Colombia
-  const colombianBanks = [
-    { code: '007', name: 'Bancolombia' },
-    { code: '012', name: 'Banco de Bogotá' },
-    { code: '051', name: 'Davivienda' },
-    { code: '002', name: 'Banco de Occidente' },
-    { code: '019', name: 'Banco BBVA' },
-    { code: '032', name: 'Banco Caja Social' },
-    { code: '052', name: 'AV Villas' },
-    { code: '040', name: 'Banco Agrario' },
-    { code: '100', name: 'Nequi' },
-    { code: '101', name: 'Daviplata' },
-  ];
-
-  const handlePaymentSubmit = async (e) => {
-    e.preventDefault();
+    let script = document.querySelector('script[src="https://checkout.wompi.co/widget.js"]');
     
-    if (paymentMethod === 'pse' && !selectedBank) {
-      alert("Por favor, selecciona tu entidad bancaria.");
+    if (!script) {
+      script = document.createElement('script');
+      script.src = "https://checkout.wompi.co/widget.js";
+      // Forzamos a que el script de Wompi reconozca la llave pública desde el atributo del DOM (Evita el bug del undefined)
+      script.setAttribute('data-public-key', WOMPI_PUBLIC_KEY);
+      script.async = true;
+      document.body.appendChild(script);
+    }
+
+    const handleScriptLoad = () => {
+      // Le damos un mini timeout para que el objeto global termine de inicializarse bien
+      setTimeout(() => {
+        setIsScriptLoaded(true);
+      }, 300);
+    };
+
+    const handleScriptError = () => {
+      console.error("No se pudo cargar el script de la pasarela Wompi.");
+      setLoadingError("Error al cargar la pasarela de pagos. Por favor, revisa tu conexión.");
+    };
+
+    script.addEventListener('load', handleScriptLoad);
+    script.addEventListener('error', handleScriptError);
+
+    return () => {
+      if (script) {
+        script.removeEventListener('load', handleScriptLoad);
+        script.removeEventListener('error', handleScriptError);
+      }
+    };
+  }, []);
+
+  // ── Disparador del Checkout ──────────────────────────────────
+  const handleWompiPayment = () => {
+    if (!window.WidgetCheckout) {
+      alert("El sistema de pagos se está inicializando o tuvo un problema de configuración. Por favor, refresca la página.");
+      return;
+    }
+
+    if (totalPrice <= 0) {
+      alert("El monto de facturación no es válido para procesar el pago.");
       return;
     }
 
     setIsProcessing(true);
 
+    // Referencia dinámica única para la sandbox
+    const uniqueReference = `TM-${bookingId.replace(/[^a-zA-Z0-9]/g, "")}-${Date.now()}`;
+
     try {
-      // Simular latencia de red de la pasarela Wompi
-      await new Promise((resolve) => setTimeout(resolve, 2500));
+      const checkout = new window.WidgetCheckout({
+        currency: 'COP',
+        amountInCents: Math.round(totalPrice * 100), 
+        reference: uniqueReference,
+        publicKey: WOMPI_PUBLIC_KEY
+      });
 
-      const bookingRef = doc(db, "bookings", bookingId);
-      
-      // Datos compartidos del éxito de la transacción
-      const paymentData = {
-        status: 'paid',
-        paymentDate: serverTimestamp(),
-        paymentMethodType: paymentMethod.toUpperCase(),
-        transactionId: 'WMP-' + Math.random().toString(36).substr(2, 9).toUpperCase(),
-      };
+      checkout.open(async (result) => {
+        const status = result.transaction?.status;
 
-      // Agregar metadatos específicos según el método elegido
-      if (paymentMethod === 'card') {
-        paymentData.paymentMethodDetail = `Tarjeta que termina en ${cardNumber.slice(-4)}`;
-      } else {
-        const bankName = colombianBanks.find(b => b.code === selectedBank)?.name || 'PSE';
-        paymentData.paymentMethodDetail = `PSE - ${bankName}`;
-      }
-
-      // Actualizar base de datos
-      await updateDoc(bookingRef, paymentData);
-
-      alert("¡Transacción aprobada con éxito en Ambiente de Pruebas!");
-      navigate('/guide/bookings'); // Redirección de regreso al panel general
-    } catch (err) {
-      console.error("Error procesando el pago en Firebase:", err);
-      alert("Hubo un problema confirmando tu pago. Inténtalo de nuevo.");
-    } finally {
+        if (status === 'APPROVED') {
+          try {
+            await updateDoc(doc(db, "bookings", bookingId), {
+              status: 'paid',
+              transactionId: result.transaction.id,
+              paidAt: serverTimestamp()
+            });
+            
+            alert("¡Pago aprobado con éxito! Tu tour ha sido confirmado.");
+            navigate('/tourist/my-bookings');
+          } catch (err) {
+            console.error("Error crítico en Firestore:", err);
+            alert("El pago fue aprobado, pero ocurrió un problema al registrarlo. Conserva tu comprobante.");
+            setIsProcessing(false); 
+          }
+        } else {
+          // Si el estado es DECLINED, ERROR o el usuario cierra la ventana, liberamos el botón
+          alert(`Transacción terminada. Estado: ${status || 'Ventana cerrada por el usuario'}`);
+          setIsProcessing(false); 
+        }
+      });
+    } catch (error) {
+      console.error("Error al abrir el widget de Wompi:", error);
+      alert("Ocurrió un error inesperado al abrir la pasarela. Revisa la consola.");
       setIsProcessing(false);
     }
   };
 
   return (
-    <div className="checkout-page-wrapper">
-      <div className="wompi-container-card">
+    <div className="co-page-container">
+      <div className="co-card">
         
-        {/* BRANDING WOMPI BANCOLOMBIA */}
-        <header className="wompi-header">
-          <h2>Wompi <span>Bancolombia</span></h2>
-          <span className="sandbox-badge">Ambiente de Pruebas Seguro</span>
-        </header>
+        {/* Encabezado Visual */}
+        <div className="co-header">
+          <div className="co-badge-security">🔒 Pago 100% Seguro</div>
+          <h2>Resumen de tu Pago</h2>
+          <p>Estás a un paso de comenzar tu aventura con TourMate.</p>
+        </div>
+        
+        <div className="co-divider"></div>
+        
+        {/* Desglose de Información */}
+        <div className="co-details-box">
+          <div className="co-info-row">
+            <span className="co-label">ID de Reserva</span>
+            <span className="co-value-id">#{bookingId?.substring(0, 8).toUpperCase()}</span>
+          </div>
 
-        {/* DISPLAY DE PRECIO */}
-        <div className="amount-display-box">
-          <span className="amount-lbl">Valor a pagar:</span>
-          <h1 className="amount-value">${totalPrice.toLocaleString('es-CO')} COP</h1>
+          <div className="co-info-row total-row">
+            <span className="co-label-total">Total a depositar</span>
+            <span className="co-price-value">${totalPrice.toLocaleString('es-CO')} COP</span>
+          </div>
         </div>
 
-        {/* SELECTOR DE MÉTODO DE PAGO */}
-        <div className="payment-method-tabs">
+        {loadingError && (
+          <div className="co-error-box">⚠️ {loadingError}</div>
+        )}
+
+        {/* Acciones principales */}
+        <div className="co-actions">
           <button 
-            type="button"
-            className={`method-tab ${paymentMethod === 'card' ? 'active' : ''}`}
-            onClick={() => setPaymentMethod('card')}
+            onClick={handleWompiPayment}
+            disabled={isProcessing || !isScriptLoaded}
+            className="co-btn-pay"
           >
-            💳 Tarjeta de Crédito
-          </button>
-          <button 
-            type="button"
-            className={`method-tab ${paymentMethod === 'pse' ? 'active' : ''}`}
-            onClick={() => setPaymentMethod('pse')}
-          >
-            🏦 Débito Bancario (PSE)
-          </button>
-        </div>
-
-        {/* FORMULARIO DINÁMICO */}
-        <form onSubmit={handlePaymentSubmit} className="checkout-form-core">
-          
-          {paymentMethod === 'card' ? (
-            /* PASARELA TARJETA */
-            <div className="form-fade-in">
-              <div className="input-group-stack">
-                <label>Nombre en la tarjeta</label>
-                <input 
-                  type="text" 
-                  value={cardName}
-                  onChange={(e) => setCardName(e.target.value)}
-                  required
-                />
-              </div>
-
-              <div className="input-group-stack">
-                <label>Número de tarjeta de pruebas</label>
-                <input 
-                  type="text" 
-                  value={cardNumber}
-                  onChange={(e) => setCardNumber(e.target.value)}
-                  required
-                />
-              </div>
-            </div>
-          ) : (
-            /* PASARELA PSE */
-            <div className="form-fade-in">
-              <div className="input-group-stack">
-                <label>Selecciona tu Banco</label>
-                <select 
-                  value={selectedBank} 
-                  onChange={(e) => setSelectedBank(e.target.value)}
-                  required
-                  className="select-dropdown-pse"
-                >
-                  <option value="">-- Elige una entidad financiera --</option>
-                  {colombianBanks.map(bank => (
-                    <option key={bank.code} value={bank.code}>{bank.name}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="input-row-flex">
-                <div className="input-group-stack">
-                  <label>Tipo de Persona</label>
-                  <select value={personType} onChange={(e) => setPersonType(e.target.value)}>
-                    <option value="natural">Persona Natural</option>
-                    <option value="juridica">Persona Jurídica</option>
-                  </select>
-                </div>
-
-                <div className="input-group-stack">
-                  <label>Tipo de Doc.</label>
-                  <select value={docType} onChange={(e) => setDocType(e.target.value)}>
-                    <option value="CC">Cédula de Ciudadanía</option>
-                    <option value="CE">Cédula de Extranjería</option>
-                    <option value="NIT">NIT</option>
-                  </select>
-                </div>
-              </div>
-
-              <div className="input-group-stack">
-                <label>Número de Documento</label>
-                <input 
-                  type="text" 
-                  placeholder="Ej: 10324567"
-                  value={docNumber}
-                  onChange={(e) => setDocNumber(e.target.value)}
-                  required
-                />
-              </div>
-            </div>
-          )}
-
-          {/* BOTÓN DE ACCIÓN ACCIONADO POR ESTADO */}
-          <button 
-            type="submit" 
-            className="wompi-submit-btn" 
-            disabled={isProcessing}
-          >
-            {isProcessing ? (
-              <span className="loader-span">Procesando pago seguro...</span>
+            {!isScriptLoaded ? (
+              <span className="co-loader-text"><span className="co-spinner"></span> Cargando pasarela...</span>
+            ) : isProcessing ? (
+              'Procesando pago...'
             ) : (
-              `Pagar de forma segura con ${paymentMethod === 'card' ? 'Tarjeta' : 'PSE'}`
+              '💳 Pagar con Wompi'
             )}
           </button>
-        </form>
 
+          <button 
+            onClick={() => navigate('/tourist/my-bookings')}
+            disabled={isProcessing}
+            className="co-btn-cancel"
+          >
+            Cancelar y regresar
+          </button>
+        </div>
       </div>
 
+      {/* ── ARQUITECTURA CSS RESPONSIVA ── */}
       <style>{`
-        .checkout-page-wrapper { display: flex; justify-content: center; align-items: center; min-height: 70vh; padding: 40px 20px; background-color: #f8fafc; font-family: system-ui, sans-serif; }
-        .wompi-container-card { background: #fff; width: 100%; max-width: 480px; padding: 35px; border-radius: 20px; box-shadow: 0 10px 25px -5px rgba(0,0,0,0.05); border: 1px solid #e2e8f0; }
-        
-        .wompi-header { text-align: center; margin-bottom: 25px; }
-        .wompi-header h2 { margin: 0; font-size: 1.6rem; color: #000; font-weight: 800; }
-        .wompi-header h2 span { color: #facc15; }
-        .sandbox-badge { display: inline-block; font-size: 0.75rem; background: #f1f5f9; color: #64748b; padding: 4px 12px; border-radius: 50px; font-weight: 600; margin-top: 5px; }
+        .co-page-container {
+          display: flex;
+          justify-content: center;
+          align-items: center;
+          min-height: 100vh;
+          background-color: #f8fafc;
+          padding: 16px;
+          font-family: 'Inter', system-ui, -apple-system, sans-serif;
+        }
 
-        .amount-display-box { background: #f1f5f9; padding: 20px; border-radius: 12px; text-align: center; margin-bottom: 25px; }
-        .amount-lbl { font-size: 0.85rem; color: #64748b; font-weight: 500; }
-        .amount-value { margin: 5px 0 0 0; font-size: 1.8rem; color: #0f172a; font-weight: 800; }
+        .co-card {
+          background: #ffffff;
+          padding: 32px 24px;
+          border-radius: 24px;
+          box-shadow: 0 4px 6px -1px rgba(15, 23, 42, 0.03), 0 20px 25px -5px rgba(15, 23, 42, 0.08);
+          max-width: 440px;
+          width: 100%;
+          border: 1px solid #e2e8f0;
+          box-sizing: border-box;
+        }
 
-        .payment-method-tabs { display: flex; gap: 10px; margin-bottom: 25px; border-bottom: 1px solid #e2e8f0; padding-bottom: 12px; }
-        .method-tab { flex: 1; padding: 10px; border: 1px solid #cbd5e1; background: #fff; border-radius: 10px; font-weight: 700; font-size: 0.85rem; color: #475569; cursor: pointer; transition: all 0.2s; }
-        .method-tab.active { background: #0f172a; color: #fff; border-color: #0f172a; }
+        .co-header {
+          text-align: center;
+          margin-bottom: 20px;
+        }
 
-        .checkout-form-core { display: flex; flex-direction: column; gap: 16px; }
-        .input-group-stack { display: flex; flex-direction: column; gap: 6px; flex: 1; }
-        .input-group-stack label { font-size: 0.8rem; font-weight: 700; color: #334155; text-transform: uppercase; letter-spacing: 0.02em; }
-        .input-group-stack input, .input-group-stack select { padding: 12px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 0.95rem; outline: none; background: #fff; }
-        .input-group-stack input:focus, .input-group-stack select:focus { border-color: #000; }
-        
-        .input-row-flex { display: flex; gap: 12px; }
+        .co-badge-security {
+          display: inline-flex;
+          background: #f0fdf4;
+          color: #16a34a;
+          padding: 6px 14px;
+          border-radius: 30px;
+          font-size: 0.78rem;
+          font-weight: 700;
+          margin-bottom: 14px;
+          letter-spacing: 0.02em;
+          border: 1px solid #bbf7d0;
+        }
 
-        .wompi-submit-btn { background: #000; color: #fff; border: none; padding: 14px; border-radius: 8px; font-size: 0.95rem; font-weight: 700; cursor: pointer; margin-top: 10px; transition: opacity 0.2s; }
-        .wompi-submit-btn:disabled { opacity: 0.6; cursor: not-allowed; }
-        
-        .form-fade-in { animation: fadeIn 0.3s ease-in-out; display: flex; flex-direction: column; gap: 16px; }
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+        .co-header h2 {
+          font-size: 1.6rem;
+          color: #0f172a;
+          margin: 0 0 8px 0;
+          font-weight: 800;
+          letter-spacing: -0.02em;
+        }
+
+        .co-header p {
+          font-size: 0.92rem;
+          color: #64748b;
+          margin: 0;
+          line-height: 1.4;
+        }
+
+        .co-divider {
+          height: 1px;
+          background-color: #f1f5f9;
+          margin: 20px 0;
+        }
+
+        .co-details-box {
+          background: #f8fafc;
+          padding: 18px;
+          border-radius: 16px;
+          border: 1px solid #f1f5f9;
+          margin-bottom: 24px;
+        }
+
+        .co-info-row {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          padding: 8px 0;
+        }
+
+        .co-info-row.total-row {
+          margin-top: 10px;
+          padding-top: 14px;
+          border-top: 1px dashed #e2e8f0;
+        }
+
+        .co-label {
+          font-size: 0.88rem;
+          color: #64748b;
+          font-weight: 500;
+        }
+
+        .co-value-id {
+          font-size: 0.88rem;
+          color: #1e293b;
+          font-weight: 700;
+          font-family: monospace;
+          background: #e2e8f0;
+          padding: 2px 8px;
+          border-radius: 6px;
+        }
+
+        .co-label-total {
+          font-size: 0.95rem;
+          color: #0f172a;
+          font-weight: 700;
+        }
+
+        .co-price-value {
+          font-size: 1.4rem;
+          color: #ff5a3c;
+          font-weight: 800;
+        }
+
+        .co-error-box {
+          background: #fef2f2;
+          color: #dc2626;
+          font-size: 0.85rem;
+          font-weight: 600;
+          padding: 12px;
+          border-radius: 12px;
+          margin-bottom: 16px;
+          border: 1px solid #fee2e2;
+          text-align: center;
+        }
+
+        .co-actions {
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+        }
+
+        .co-btn-pay {
+          width: 100%;
+          padding: 14px;
+          background-color: #10b981;
+          color: #ffffff;
+          border: none;
+          border-radius: 14px;
+          font-size: 1rem;
+          font-weight: 700;
+          cursor: pointer;
+          transition: background-color 0.2s ease, transform 0.1s ease;
+          display: flex;
+          justify-content: center;
+          align-items: center;
+        }
+
+        .co-btn-pay:hover:not(:disabled) {
+          background-color: #059669;
+         }
+
+        .co-btn-pay:active:not(:disabled) {
+          transform: scale(0.98);
+        }
+
+        .co-btn-pay:disabled {
+          opacity: 0.65;
+          cursor: not-allowed;
+          background-color: #cbd5e1;
+          color: #64748b;
+        }
+
+        .co-btn-cancel {
+          width: 100%;
+          padding: 12px;
+          background-color: transparent;
+          color: #64748b;
+          border: none;
+          border-radius: 14px;
+          font-size: 0.9rem;
+          font-weight: 600;
+          cursor: pointer;
+          transition: background-color 0.2s, color 0.2s;
+        }
+
+        .co-btn-cancel:hover:not(:disabled) {
+          background-color: #f1f5f9;
+          color: #0f172a;
+        }
+
+        .co-btn-cancel:disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
+        }
+
+        .co-loader-text {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+        }
+
+        .co-spinner {
+          width: 18px;
+          height: 18px;
+          border: 2px solid #94a3b8;
+          border-top-color: transparent;
+          border-radius: 50%;
+          animation: co-spin 0.8s linear infinite;
+        }
+
+        @keyframes co-spin {
+          to { transform: rotate(360deg); }
+        }
+
+        /* ── RESPONSIVIDAD PARA DISPOSITIVOS MÓVILES ── */
+        @media (max-width: 480px) {
+          .co-page-container {
+            padding: 0;
+            align-items: flex-end; 
+            background-color: #ffffff;
+          }
+
+          .co-card {
+            border: none;
+            box-shadow: none;
+            border-radius: 24px 24px 0 0;
+            padding: 24px 16px;
+            background: #ffffff;
+            border-top: 1px solid #e2e8f0;
+          }
+          
+          .co-header h2 {
+            font-size: 1.45rem;
+          }
+          
+          .co-price-value {
+            font-size: 1.25rem;
+          }
+
+          .co-btn-pay, .co-btn-cancel {
+            padding: 16px; 
+            font-size: 1rem;
+          }
+        }
       `}</style>
     </div>
   );
